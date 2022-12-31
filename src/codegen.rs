@@ -306,7 +306,7 @@ pub fn ebpf_code_gen(
             buf.extend(code.to_ne_bytes());
         }
         "exit" => {
-            let code = BPF_JMP as u64 | BPF_EXIT as u64 | parse_u64(dst)? << SH_IMM;
+            let code = BPF_JMP as u64 | BPF_EXIT as u64;
             buf.extend(code.to_ne_bytes());
         }
         "jlt" => {
@@ -506,5 +506,10 @@ mod tests {
         let r = ebpf_code_gen("call.helper", "0x33", 0, "", 0, &mut buf);
         assert_eq!(r, Ok(()));
         assert_eq!(buf, [BPF_JMP | BPF_CALL, 0x0, 0, 0, 0x33, 0, 0, 0]);
+
+        buf.clear();
+        let r = ebpf_code_gen("exit", "", 0, "", 0, &mut buf);
+        assert_eq!(r, Ok(()));
+        assert_eq!(buf, [BPF_JMP | BPF_EXIT, 0x0, 0, 0, 0x0, 0, 0, 0]);
     }
 }

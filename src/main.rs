@@ -494,6 +494,12 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                 if sect_idx >= prog.sects.len() {
                     return ParseError::new_prog(line_no, line, "unknown error");
                 }
+                if cmd == "exit" {
+                    codegen::ebpf_code_gen(&cmd, "", 0, "", 0, &mut prog.sects[sect_idx].data)
+                        .map_err(|_| ParseError::new_p(line_no, line, "fail to generate code"))?;
+                    continue;
+                }
+
                 let saved_rels_len = prog.temp_rels.len();
                 let dst = if &dst[0..1] == "@" {
                     let off = prog.sects[sect_idx].data.len();

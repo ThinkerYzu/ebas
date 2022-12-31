@@ -318,6 +318,21 @@ pub fn parse_line(line: &str) -> Result<Insn, ParseError> {
             _ => {
                 // text section
                 let mut cmd = tokens[0].to_string();
+                if cmd == "exit" {
+                    if tokens.len() != 1 {
+                        return ParseError::new(line, "invalid syntax; unused operands");
+                    }
+                    return Ok(Insn::Insn(
+                        cmd,
+                        "".to_string(),
+                        1,
+                        0.to_string(),
+                        "".to_string(),
+                        1,
+                        0.to_string(),
+                    ));
+                }
+
                 let is_call = cmd == "call";
                 while tokens.len() >= 3 && tokens[1] == "." {
                     cmd = format!("{}.{}", cmd, tokens[2]);
@@ -595,5 +610,8 @@ mod tests {
 
         let r = parse_line(" call.helper L@LAB");
         assert!(r.is_err());
+
+        let r = parse_line(" exit");
+        assert!(r.is_ok());
     }
 }
