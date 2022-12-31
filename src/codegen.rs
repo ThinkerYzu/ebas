@@ -133,8 +133,8 @@ fn gen_jmp(
     let code = cmd as u64
         | jtype as u64
         | (get_regno(dst)? as u64) << SH_DST
-        | ((off & 0xffff) as u64) << SH_OFF
-        | parse_u64(src)? << SH_IMM;
+        | (get_regno(src)? as u64) << SH_SRC
+        | ((off & 0xffff) as u64) << SH_OFF;
     buf.extend(code.to_ne_bytes());
     Ok(())
 }
@@ -482,14 +482,14 @@ mod tests {
         assert_eq!(buf, [BPF_LDX | BPF_DW | BPF_MEM, 0x5a, 0x30, 0, 0, 0, 0, 0]);
 
         buf.clear();
-        let r = ebpf_code_gen("jeq", "r1", 0, "0", 28, &mut buf);
+        let r = ebpf_code_gen("jeq", "r1", 0, "r0", 28, &mut buf);
         assert_eq!(r, Ok(()));
         assert_eq!(buf, [BPF_JMP | BPF_JEQ, 0x1, 0x1c, 0, 0, 0, 0, 0]);
 
         buf.clear();
-        let r = ebpf_code_gen("jsgt.32", "r1", 0, "100", 24, &mut buf);
+        let r = ebpf_code_gen("jsgt.32", "r1", 0, "r0", 24, &mut buf);
         assert_eq!(r, Ok(()));
-        assert_eq!(buf, [BPF_JMP32 | BPF_JSGT, 0x1, 0x18, 0, 0x64, 0, 0, 0]);
+        assert_eq!(buf, [BPF_JMP32 | BPF_JSGT, 0x1, 0x18, 0, 0, 0, 0, 0]);
 
         buf.clear();
         let r = ebpf_code_gen("call", "0x33", 0, "", 0, &mut buf);
