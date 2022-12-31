@@ -118,6 +118,39 @@ pub const SHT_SHLIB: u32 = 10;
 #[allow(dead_code)]
 pub const SHT_DYNSYM: u32 = 11;
 
+#[allow(dead_code)]
+pub const SHF_WRITE: u64 = 0x1;
+#[allow(dead_code)]
+pub const SHF_ALLOC: u64 = 0x2;
+#[allow(dead_code)]
+pub const SHF_EXECINSTR: u64 = 0x4;
+#[allow(dead_code)]
+pub const SHF_MERGE: u64 = 0x10;
+#[allow(dead_code)]
+pub const SHF_STRINGS: u64 = 0x20;
+#[allow(dead_code)]
+pub const SHF_INFO_LINK: u64 = 0x40;
+#[allow(dead_code)]
+pub const SHF_LINK_ORDER: u64 = 0x80;
+#[allow(dead_code)]
+pub const SHF_OS_NONCONFORMING: u64 = 0x100;
+#[allow(dead_code)]
+pub const SHF_GROUP: u64 = 0x200;
+#[allow(dead_code)]
+pub const SHF_TLS: u64 = 0x400;
+#[allow(dead_code)]
+pub const SHF_COMPRESSED: u64 = 0x800;
+#[allow(dead_code)]
+pub const SHF_GNU_RETAIN: u64 = 0x200000;
+#[allow(dead_code)]
+pub const SHF_EXCLUDE: u64 = 0x80000000;
+#[allow(dead_code)]
+pub const SHF_MASKOS: u64 = 0x0ff00000;
+#[allow(dead_code)]
+pub const SHF_SUNW_NODISCARD: u64 = 0x00100000;
+#[allow(dead_code)]
+pub const SHF_MASKPROC: u64 = 0xf0000000;
+
 #[repr(C)]
 pub struct Elf64_Shdr {
     pub sh_name: Elf64_Word,       /* Section name, index in string tbl */

@@ -92,6 +92,7 @@ struct Section {
     rels: Vec<Relocation>,
     data_off: usize,
     rels_off: usize,
+    flags: u64,
 }
 
 pub struct Program {
@@ -146,6 +147,7 @@ impl Program {
                 rels: vec![],
                 data_off: 0,
                 rels_off: 0,
+                flags: elf::SHF_INFO_LINK,
             };
             rel_sect.rels.append(&mut self.temp_rels);
             assert!(self.temp_rels.is_empty());
@@ -166,6 +168,7 @@ impl Program {
             rels: vec![],
             data_off: 0,
             rels_off: 0,
+            flags: 0,
         });
         Ok(self.sects.len() - 1)
     }
@@ -288,7 +291,7 @@ impl Program {
             let esect = elf::Elf64_Shdr {
                 sh_name: self.find_strtab_off(&sect.name).unwrap() as elf::Elf64_Word,
                 sh_type,
-                sh_flags: 0,
+                sh_flags: sect.flags,
                 sh_addr: 0,
                 sh_offset: sect.data_off as elf::Elf64_Off,
                 sh_size: (sect.data.len() + sect.rels.len() * 16) as elf::Elf64_Xword,
@@ -518,6 +521,17 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                 if sect_idx >= prog.sects.len() {
                     return ParseError::new_prog(line_no, line, "unknown error");
                 }
+                if prog.sects[sect_idx].flags != 0
+                    && prog.sects[sect_idx].flags != (elf::SHF_ALLOC | elf::SHF_EXECINSTR)
+                {
+                    return ParseError::new_prog(
+                        line_no,
+                        line,
+                        "should not inter-mix data and instructions",
+                    );
+                }
+                prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_EXECINSTR;
+
                 if cmd == "exit" {
                     codegen::ebpf_code_gen(&cmd, "", 0, "", 0, &mut prog.sects[sect_idx].data)
                         .map_err(|_| ParseError::new_p(line_no, line, "fail to generate code"))?;
@@ -655,17 +669,38 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                         idx
                     }
                 };
+                prog.sects[sect_idx].flags = elf::SHF_WRITE | elf::SHF_ALLOC;
             }
             Insn::Dbytes(mut v_u8v) => {
                 if sect_idx >= prog.sects.len() {
                     return ParseError::new_prog(line_no, line, "Unknown error");
                 }
+                if prog.sects[sect_idx].flags != 0
+                    && prog.sects[sect_idx].flags != (elf::SHF_ALLOC | elf::SHF_WRITE)
+                {
+                    return ParseError::new_prog(
+                        line_no,
+                        line,
+                        "should not inter-mix data and instructions",
+                    );
+                }
+                prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_WRITE;
                 prog.sects[sect_idx].data.append(&mut v_u8v);
             }
             Insn::Dwords(u32v) => {
                 if sect_idx >= prog.sects.len() {
                     return ParseError::new_prog(line_no, line, "Unknown error");
                 }
+                if prog.sects[sect_idx].flags != 0
+                    && prog.sects[sect_idx].flags != (elf::SHF_ALLOC | elf::SHF_WRITE)
+                {
+                    return ParseError::new_prog(
+                        line_no,
+                        line,
+                        "should not inter-mix data and instructions",
+                    );
+                }
+                prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_WRITE;
                 for v in u32v {
                     prog.sects[sect_idx].data.extend(&v.to_ne_bytes());
                 }
@@ -674,6 +709,16 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                 if sect_idx >= prog.sects.len() {
                     return ParseError::new_prog(line_no, line, "Unknown error");
                 }
+                if prog.sects[sect_idx].flags != 0
+                    && prog.sects[sect_idx].flags != (elf::SHF_ALLOC | elf::SHF_WRITE)
+                {
+                    return ParseError::new_prog(
+                        line_no,
+                        line,
+                        "should not inter-mix data and instructions",
+                    );
+                }
+                prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_WRITE;
                 for v in u64v {
                     prog.sects[sect_idx].data.extend(&v.to_ne_bytes());
                 }
