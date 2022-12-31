@@ -174,8 +174,8 @@ impl Program {
         for sym in self.syms.as_slice() {
             let st_info = match sym.stype {
                 SymbolType::NoType => elf::STT_NOTYPE,
-                SymbolType::Object => elf::STT_OBJECT,
-                SymbolType::Func => elf::STT_FUNC,
+                SymbolType::Object => elf::STT_OBJECT | (elf::STB_GLOBAL << 4),
+                SymbolType::Func => elf::STT_FUNC | (elf::STB_GLOBAL << 4),
                 SymbolType::Section => elf::STT_SECTION,
             };
             let esym = elf::Elf64_Sym {

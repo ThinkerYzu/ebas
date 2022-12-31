@@ -145,6 +145,13 @@ pub const STT_SECTION: u8 = 3;
 #[allow(dead_code)]
 pub const STT_FILE: u8 = 4;
 
+#[allow(dead_code)]
+pub const STB_LOCAL: u8 = 0;
+#[allow(dead_code)]
+pub const STB_GLOBAL: u8 = 1;
+#[allow(dead_code)]
+pub const STB_WEAK: u8 = 2;
+
 #[derive(Clone)]
 #[repr(C)]
 pub struct Elf64_Sym {
