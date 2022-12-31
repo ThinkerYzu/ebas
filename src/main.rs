@@ -81,6 +81,7 @@ enum SectionType {
     STRTAB,
     SYMTAB,
     PROGBITS,
+    NOBITS,
     REL,
 }
 
@@ -112,6 +113,13 @@ impl Program {
     /// Commit relocations in the `temp_rels` to a separate section.
     fn commit_temp_rels(&mut self) -> Result<(), String> {
         if !self.sects.is_empty() && !self.temp_rels.is_empty() {
+            if self.sects.last().unwrap().stype == SectionType::NOBITS {
+                return Err(format!(
+                    "A BSS section should not has any relocation: {:?}",
+                    self.sects.last().unwrap().name
+                ));
+            }
+
             for ridx in (0..self.temp_rels.len()).rev() {
                 if self.temp_rels[ridx].rtype == ReloType::OFF {
                     let rel = &self.temp_rels[ridx];
@@ -225,8 +233,11 @@ impl Program {
         for idx in 3..self.sects.len() {
             self.sects[idx].data_off =
                 self.sects[idx - 1].rels_off + self.sects[idx - 1].rels.len() * 16;
-            self.sects[idx].rels_off =
-                (self.sects[idx].data_off + self.sects[idx].data.len() + 7) & !0x7;
+            self.sects[idx].rels_off = if self.sects[idx].stype == SectionType::NOBITS {
+                self.sects[idx].data_off
+            } else {
+                (self.sects[idx].data_off + self.sects[idx].data.len() + 7) & !0x7
+            };
         }
     }
 
@@ -238,6 +249,7 @@ impl Program {
                 SectionType::STRTAB => elf::SHT_STRTAB,
                 SectionType::SYMTAB => elf::SHT_SYMTAB,
                 SectionType::PROGBITS => elf::SHT_PROGBITS,
+                SectionType::NOBITS => elf::SHT_NOBITS,
                 SectionType::REL => elf::SHT_REL,
             };
             let sh_addralign = match sect.stype {
@@ -245,6 +257,7 @@ impl Program {
                 SectionType::STRTAB => 1,
                 SectionType::SYMTAB => 8,
                 SectionType::PROGBITS => 8,
+                SectionType::NOBITS => 8,
                 SectionType::REL => 8,
             };
             let sh_entsize = match sect.stype {
@@ -252,6 +265,7 @@ impl Program {
                 SectionType::STRTAB => 0,
                 SectionType::SYMTAB => mem::size_of::<elf::Elf64_Sym>() as elf::Elf64_Xword,
                 SectionType::PROGBITS => 0,
+                SectionType::NOBITS => 0,
                 SectionType::REL => 0x10,
             };
             let sh_link = match sect.stype {
@@ -259,6 +273,7 @@ impl Program {
                 SectionType::STRTAB => 0,
                 SectionType::SYMTAB => 1,
                 SectionType::PROGBITS => 0,
+                SectionType::NOBITS => 0,
                 SectionType::REL => self.find_section(".symtab").unwrap() as elf::Elf64_Word,
             };
             let sh_info = match sect.stype {
@@ -266,6 +281,7 @@ impl Program {
                 SectionType::STRTAB => 0,
                 SectionType::SYMTAB => self.syms.len() as elf::Elf64_Word,
                 SectionType::PROGBITS => 0,
+                SectionType::NOBITS => 0,
                 SectionType::REL => ndx as elf::Elf64_Word - 1,
             };
 
@@ -366,7 +382,13 @@ impl Program {
             + self
                 .sects
                 .iter()
-                .map(|s| ((s.data.len() + 7) & !0x7) + s.rels.len() * 16)
+                .map(|s| {
+                    if s.stype == SectionType::NOBITS {
+                        0
+                    } else {
+                        ((s.data.len() + 7) & !0x7) + s.rels.len() * 16
+                    }
+                })
                 .sum::<usize>();
         let strtaboff = symtaboff + self.syms.len() * mem::size_of::<elf::Elf64_Sym>();
         let shoff = (strtaboff + self.compute_strtab_len() + 7) & !0x7;
@@ -408,8 +430,10 @@ impl Program {
         self.fix_relocations();
 
         for sect in self.sects[2..].iter() {
-            out.extend_from_slice(&sect.data);
-            out.resize((out.len() + 7) & !0x7, 0);
+            if sect.stype != SectionType::NOBITS {
+                out.extend_from_slice(&sect.data);
+                out.resize((out.len() + 7) & !0x7, 0);
+            }
             for rel in &sect.rels {
                 let ndx = self
                     .find_symbol_idx(&rel.name)
@@ -597,6 +621,29 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                     _ => {
                         let idx = prog
                             .create_section(&name, SectionType::PROGBITS)
+                            .map_err(|e| ParseError::new_p(0, line, &e))?;
+                        prog.syms.push(Symbol {
+                            stype: SymbolType::Section,
+                            name,
+                            off: 0,
+                            sect: idx,
+                            size: 0,
+                        });
+                        idx
+                    }
+                };
+            }
+            Insn::Bss(name) => {
+                if let Some(sym_data_idx) = sym_func_data_idx {
+                    prog.syms[sym_data_idx].size =
+                        prog.sects[sect_idx].data.len() - prog.syms[sym_data_idx].off;
+                }
+                sym_func_data_idx = None;
+                sect_idx = match prog.find_section(&name) {
+                    Some(idx) => idx,
+                    _ => {
+                        let idx = prog
+                            .create_section(&name, SectionType::NOBITS)
                             .map_err(|e| ParseError::new_p(0, line, &e))?;
                         prog.syms.push(Symbol {
                             stype: SymbolType::Section,

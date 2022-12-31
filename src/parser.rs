@@ -13,6 +13,7 @@ pub enum Insn {
     Label(String, LabelType),
     Insn(String, String, isize, String, String, isize, String),
     Section(String),
+    Bss(String),
     Dbytes(Vec<u8>),
     Dwords(Vec<u32>),
     Ddwords(Vec<u64>),
@@ -198,6 +199,29 @@ pub fn parse_line(line: &str) -> Result<Insn, ParseError> {
                     tokens[2].to_string()
                 };
                 Ok(Insn::Section(sect_name))
+            }
+            "bss" => {
+                // section
+                if tokens.len() != 3 {
+                    if tokens.len() != 2 {
+                        ParseError::new(line, "need exact one section name")?;
+                    }
+                    tokens.push("\".bss\"");
+                }
+                let sect_name = if tokens[2].starts_with('\"') {
+                    if !tokens[2].ends_with('\"') {
+                        return ParseError::new(line, "missing quote (\")");
+                    }
+                    tokens[2]
+                        .strip_prefix('\"')
+                        .unwrap()
+                        .strip_suffix('\"')
+                        .unwrap()
+                        .to_string()
+                } else {
+                    tokens[2].to_string()
+                };
+                Ok(Insn::Bss(sect_name))
             }
             "function" => {
                 if tokens.len() != 3 {
@@ -444,6 +468,12 @@ mod tests {
 
         let r = parse_line(" . section data //");
         assert_eq!(r, Ok(Insn::Section("data".to_string())));
+
+        let r = parse_line(" . bss //");
+        assert_eq!(r, Ok(Insn::Bss(".bss".to_string())));
+
+        let r = parse_line(" . bss \"testbss\"//");
+        assert_eq!(r, Ok(Insn::Bss("testbss".to_string())));
 
         let r = parse_line("db 33, 0x22 //foobar");
         assert_eq!(r, Ok(Insn::Dbytes(vec![33, 0x22])));
