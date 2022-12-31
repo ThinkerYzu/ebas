@@ -1,13 +1,13 @@
 use super::Program;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum LabelType {
     NoType,
     Func,
     Data,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Insn {
     // label_name, is_function
     Label(String, LabelType),
@@ -135,7 +135,7 @@ fn tokenize(line: &str) -> Result<Vec<&str>, ()> {
     Ok(tokens)
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Eq)]
 pub struct ParseError {
     pub line: String,
     pub reason: String,
