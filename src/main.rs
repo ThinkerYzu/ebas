@@ -110,29 +110,47 @@ impl Program {
     }
 
     /// Commit relocations in the `temp_rels` to a separate section.
-    fn commit_temp_rels(&mut self) {
-        if let Some(last) = self.sects.last_mut() {
-            if !self.temp_rels.is_empty() {
-                let mut rel_sect = Section {
-                    stype: SectionType::REL,
-                    name: format!(".rel{}", last.name),
-                    data: vec![],
-                    rels: vec![],
-                    data_off: 0,
-                    rels_off: 0,
-                };
-                rel_sect.rels.append(&mut self.temp_rels);
-                assert!(self.temp_rels.is_empty());
-                self.sects.push(rel_sect);
+    fn commit_temp_rels(&mut self) -> Result<(), String> {
+        if !self.sects.is_empty() && !self.temp_rels.is_empty() {
+            for ridx in (0..self.temp_rels.len()).rev() {
+                if self.temp_rels[ridx].rtype == ReloType::OFF {
+                    let rel = &self.temp_rels[ridx];
+                    let sidx = rel.sect;
+                    let ioff = rel.off;
+                    let sym_idx = self
+                        .find_symbol_idx(&rel.name)
+                        .ok_or_else(|| format!("not found symbol: {:?}", rel.name))?;
+                    let sym = &self.syms[sym_idx];
+                    if sym.sect != sidx {
+                        return Err("the offset is in different section".to_string());
+                    }
+                    let sym_off = sym.off;
+                    let off = (sym_off - (ioff + 8)) >> 3;
+                    codegen::fix_offset(&mut self.sects[sidx].data[ioff..(ioff + 8)], off);
+                    self.temp_rels.remove(ridx);
+                }
             }
+
+            let mut rel_sect = Section {
+                stype: SectionType::REL,
+                name: format!(".rel{}", self.sects.last().unwrap().name),
+                data: vec![],
+                rels: vec![],
+                data_off: 0,
+                rels_off: 0,
+            };
+            rel_sect.rels.append(&mut self.temp_rels);
+            assert!(self.temp_rels.is_empty());
+            self.sects.push(rel_sect);
         }
+        Ok(())
     }
 
-    fn create_section(&mut self, name: &str, stype: SectionType) -> Result<usize, ()> {
+    fn create_section(&mut self, name: &str, stype: SectionType) -> Result<usize, String> {
         if self.find_section(name).is_some() {
-            return Err(());
+            return Err(format!("redefined a section: {:?}", name));
         }
-        self.commit_temp_rels();
+        self.commit_temp_rels()?;
         self.sects.push(Section {
             stype,
             name: name.to_string(),
@@ -419,9 +437,9 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
         temp_rels: vec![],
     };
     prog.create_section("", SectionType::NULL)
-        .map_err(|_| ParseError::new_p(0, "", "Fail to create an empty section"))?;
+        .map_err(|e| ParseError::new_p(0, "", &e))?;
     prog.create_section(".strtab", SectionType::STRTAB)
-        .map_err(|_| ParseError::new_p(0, "", "Fail to create .strtab section"))?;
+        .map_err(|e| ParseError::new_p(0, "", &e))?;
 
     prog.syms.push(Symbol {
         stype: SymbolType::NoType,
@@ -573,7 +591,7 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                     _ => {
                         let idx = prog
                             .create_section(&name, SectionType::PROGBITS)
-                            .map_err(|_| ParseError::new_p(0, line, "fail to create a section"))?;
+                            .map_err(|e| ParseError::new_p(0, line, &e))?;
                         prog.syms.push(Symbol {
                             stype: SymbolType::Section,
                             name,
@@ -617,7 +635,7 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
     }
 
     prog.create_section(".symtab", SectionType::SYMTAB)
-        .map_err(|_| ParseError::new_p(0, "", "Fail to create .symtab section"))?;
+        .map_err(|e| ParseError::new_p(0, "", &e))?;
 
     Ok(prog)
 }

@@ -394,6 +394,12 @@ pub fn ebpf_code_gen(
     Ok(())
 }
 
+pub fn fix_offset(insn: &mut [u8], off: usize) {
+    let mut code = u64::from_le_bytes(<[u8; 8]>::try_from(&*insn).unwrap());
+    code = (code & !0xff00) | ((off as u64) << SH_OFF);
+    insn.copy_from_slice(&code.to_le_bytes());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
