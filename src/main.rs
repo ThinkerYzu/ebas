@@ -1469,6 +1469,7 @@ fn main() {
         eprintln!("Can not write {}", out_fn);
         process::exit(255);
     }
+    println!("Write to {}", out_fn);
 }
 
 #[cfg(test)]
