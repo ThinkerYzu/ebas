@@ -413,19 +413,37 @@ pub fn parse_line(line: &str) -> Result<Insn, ParseError> {
 
                 let src = tokens[tidx];
                 tidx += 1;
-                let (src_sign, src_off) =
-                    if tidx < tokens.len() && (tokens[tidx] == "+" || tokens[tidx] == "-") {
-                        let sign: isize = if tokens[tidx] == "+" { 1 } else { -1 };
-                        tidx += 1;
-                        if tidx >= tokens.len() {
+                let (src_sign, src_off) = if tidx < tokens.len()
+                    && (tokens[tidx] == "+" || tokens[tidx] == "-" || tokens[tidx] == ",")
+                {
+                    if tokens[tidx] == "," {
+                        // Support three operands syntax.  The
+                        // third operand is always an offset. Like
+                        // `jne r1, r2, 0x30`.
+                        //
+                        // Translate the reset tokens to the form,
+                        // likes `jne r1, r2 + 0x30`.
+                        if (tidx + 1) >= tokens.len() {
                             return ParseError::new(line, "invalid syntax");
                         }
-                        let v = tokens[tidx];
-                        tidx += 1;
-                        (sign, v)
-                    } else {
-                        (1, "0")
-                    };
+                        if tokens[tidx + 1] != "+" && tokens[tidx + 1] != "-" {
+                            tokens[tidx] = "+";
+                        } else {
+                            tokens.remove(tidx);
+                        }
+                    }
+
+                    let sign: isize = if tokens[tidx] == "+" { 1 } else { -1 };
+                    tidx += 1;
+                    if tidx >= tokens.len() {
+                        return ParseError::new(line, "invalid syntax");
+                    }
+                    let v = tokens[tidx];
+                    tidx += 1;
+                    (sign, v)
+                } else {
+                    (1, "0")
+                };
 
                 if tidx != tokens.len() {
                     return ParseError::new(line, "invalid syntax");
@@ -483,6 +501,20 @@ mod tests {
 
         let r = parse_line("dd 0x33 //");
         assert_eq!(r, Ok(Insn::Ddwords(vec![0x33])));
+
+        let r = parse_line("jne r1, r2, -0x3");
+        assert_eq!(
+            r,
+            Ok(Insn::Insn(
+                "jne".to_string(),
+                "r1".to_string(),
+                1,
+                "0".to_string(),
+                "r2".to_string(),
+                -1,
+                "0x3".to_string(),
+            ))
+        );
 
         let r = parse_line("ld r3, 22 //");
         assert_eq!(

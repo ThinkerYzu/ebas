@@ -6,7 +6,7 @@
         ld.w            r1, r1
         lsh.64          r1, 32
         arsh.64         r1, 32
-        jne             r0, r1 + @LBB0_2
+        jne             r0, r1, @LBB0_2
         ld.dw           r1, @fentry_cnt
         ld.w            r2, r1
         add             r2, 1
