@@ -4,7 +4,7 @@ BPFS := nanosleep.bpf.o
 
 all:: $(BINS) $(BPFS)
 
-$(BPFS):%.bpf.o: %.bpf.asm
+$(BPFS):%.bpf.o: %.bpf.s
 	cargo run $< $@
 
 $(BINS):%: %.c
