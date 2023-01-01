@@ -127,3 +127,37 @@ There are 64-bits versions to read 64-bits from both operands.
 However, you can not use 64-bits immedate value.
 
 ### Jump
+
+Most jump instructions compare two operand and jump to the location
+given by an offset related PC.
+
+ - `ja` is an unconditional jump.
+
+ - `jeq` jump if two operands are equal.
+
+ - `jgt` jump if the first operand is greater than the second one.
+
+ - `jge` jump if the first operand is greater than or equal to the
+   second one.
+
+ - `jset` jump if any bits set in the first operand is also set in the
+   second one.
+
+ - `jne` jump if two operands are not equal.
+
+ - `jsgt` jump if the first operand is greater than the second one
+   (signed).
+
+ - `jsge` jump if the first operand is greater than or equal to the
+   second one (signed).
+
+ - `jlt` jump if the first operand is lesser than the second one.
+
+ - `jle` jump if the first operand is lesser than or equal to the
+   second one.
+
+ - `jslt` jump if the first operand is lesser than the second one
+   (signed).
+
+ - `jsle` jump if the first operand is lesser than or equal to the
+   second one (signed).
