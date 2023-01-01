@@ -9,13 +9,13 @@ will help you create a program that can be used in Linux systems.
 
 **ebas** is implemented in Rust. You need to install Rust first.  The
 way to install Rust varies depending on your environment.  Once Rust
-is installed, you can use `cargo` command to build ebas. Just type
+is installed, you can use `cargo` command to build **ebas**. Just type
 `cargo build --release`. With this command `ebas` binary will be
 generated in the `target/release` directory of your project.
 
 ## Compile Programs
 
-Use `ebas` to compile ebpf assembly program. For example, `ebas
+Use **ebas** to compile ebpf assembly program. For example, `ebas
 ebpf_program.s ebpf_program.o` will compile `ebpf_program.s` and
 generate an ebpf object file `ebpf_program.o`. This ebpf object file
 can be loaded at run-time with libbpf library.
@@ -197,7 +197,7 @@ original calling context.
 
     exit // terminate ebpf program execution
 
-## The Syntax of `ebas`
+## The Syntax of ebas
 
 A program includes sections that comprise functions or data objects
 exclusively.  The keyword `.section` followed by a section name starts
@@ -242,7 +242,7 @@ load it.
 ### Labels and Names
 
 You can refer to function names, data object names, and label names by
-prefixing name with a `@` character. `ebas` will expand these names to
+prefixing name with a `@` character. **ebas** will expand these names to
 the address or offset of functions, data objects, or labels.
 
 Labels are defined by a name followed by a `:` character in a separate
