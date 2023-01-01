@@ -59,7 +59,7 @@ For every `ld` instructions, it loads data to a register. For example,
    with an offset `4`.
 
 `ld.dw` has a special function to load an 8 bytes immediate value to a
-register.  `ld.b`, `ld.h`, and `ld.w` can load an immediate value.
+register.  `ld.b`, `ld.h`, and `ld.w` can not load an immediate value.
 
  - `ld.dw r1, 0xffffffffffffffff` loads `0xffffffffffffffff` (8 bytes
    immediate value) to `r1`.
