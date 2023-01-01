@@ -131,13 +131,13 @@ fn gen_jmp(
         BPF_JMP
     };
     let code = match parse_u64(src) {
-        Ok(src_regno) => {
+        Ok(v) => {
             cmd as u64
                 | BPF_K as u64
                 | jtype as u64
                 | (get_regno(dst)? as u64) << SH_DST
-                | src_regno << SH_SRC
                 | ((off & 0xffff) as u64) << SH_OFF
+                | v << SH_IMM
         }
         _ => {
             cmd as u64
@@ -410,7 +410,7 @@ pub fn ebpf_code_gen(
 
 pub fn fix_offset(insn: &mut [u8], off: usize) {
     let mut code = u64::from_le_bytes(<[u8; 8]>::try_from(&*insn).unwrap());
-    code = (code & !0xff00) | ((off as u64) << SH_OFF);
+    code = (code & !0xffff0000) | ((off as u64) << SH_OFF);
     insn.copy_from_slice(&code.to_le_bytes());
 }
 
