@@ -20,6 +20,9 @@ ebpf_program.s ebpf_program.o` will compile `ebpf_program.s` and
 generate an ebpf object file `ebpf_program.o`. This ebpf object file
 can be loaded at run-time with libbpf library.
 
+Check the file *ex-apps/nanosleep.c* in the repository for loading an
+ebpf program.
+
 ## Instructions
 
 There are three major caegories of instructions.
