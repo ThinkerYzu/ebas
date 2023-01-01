@@ -69,4 +69,61 @@ You can store 4 different size of data to memory as well.
 
 ### Arithmatic
 
+Following are arithmatic instructions.
+
+ - `add` add two operands and keep the result at the first register.
+
+ - `sub` substract two operands and keep the result at the first
+   reigster.
+
+ - `mul` multiples two operands.
+
+ - `div` divides first operand by the second operand.
+
+ - `or`
+
+ - `and`
+
+ - `lsh` bitwise shifts the first operand left with by n-bits given by
+   the second operand.
+
+ - `rsh` bitwise shifts the first operand right.
+
+ - `neg` do bitwise not on the second operand and store the result at
+   the first register.
+
+ - `mod` modulo.
+
+ - `xor`
+
+ - `arsh` do sign-aware shift right.
+
+ - `end` do byte swapping.
+
+ - `mov` moves the value of the second operand to the first register.
+
+The second operand should be a register or a 32-bits immediate value.
+
+ - `add r1, r2` adds `r2` to `r1`.
+
+ - `add r1, 0xff` adds `0xff` to `r1`.
+
+ - `mov r1, r3` move the value of `r3` to `r1`.
+
+ - `mov r1, 0x1f1f` move `0x1f1f` (32-bits) to `r1`.
+
+All these instructions are 3-bits.  They read 32-bits from both
+operands, but write to the first operand, a register, as a 64-bits
+value.
+
+There are 64-bits versions to read 64-bits from both operands.
+
+ - `add.64 r1, r2` adds the 64-bits value of `r2` to `r1`.
+
+ - `div.64 r1, r2` divide `r1` with the 64-bits value of `r2`.
+
+ - `div.64 r1, r2` move the 64-bits value of `r2` to `r1`.
+
+However, you can not use 64-bits immedate value.
+
 ### Jump
