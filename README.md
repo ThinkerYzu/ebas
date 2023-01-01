@@ -15,7 +15,7 @@ generated in the `target/release` directory of your project.
 
 ## Compile Programs
 
-Use **ebas** to compile ebpf assembly program. For example, `ebas
+Use **ebas** to compile ebpf assembly programs. For example, `ebas
 ebpf_program.s ebpf_program.o` will compile `ebpf_program.s` and
 generate an ebpf object file `ebpf_program.o`. This ebpf object file
 can be loaded at run-time with libbpf library.
@@ -25,7 +25,7 @@ ebpf program.
 
 ## Instructions
 
-There are three major caegories of instructions.
+There are three major categories of instructions.
 
  - Load and Store
  - Arithmatic
@@ -211,7 +211,7 @@ section name by providing a section name after the `.bss` keyword.
 The section started by the `.bss` keyword should contains only data
 objects while you can add functions or data objects exclusively to a
 section started by the `.section` keyword.  Following is an example
-that defines a `fentry` program attached to `__x64_sys_nanosleep`.
+that defines an `fentry` program attached to `__x64_sys_nanosleep`.
 
     .section "fentry/__x64_sys_nanosleep"
     .function nanosleep_fentry
@@ -245,10 +245,10 @@ load it.
 ### Labels and Names
 
 You can refer to function names, data object names, and label names by
-prefixing name with a `@` character. **ebas** will expand these names to
+prefixing name with an `@` character. **ebas** will expand these names to
 the address or offset of functions, data objects, or labels.
 
-Labels are defined by a name followed by a `:` character in a separate
+Labels are defined by a name followed by an `:` character in a separate
 line.
 
 For example,
