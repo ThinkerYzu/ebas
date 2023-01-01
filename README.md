@@ -1,9 +1,24 @@
-ebas is an assembler for Extended Berkeley Packet Filtering (eBPF)
+**ebas** is an assembler for Extended Berkeley Packet Filtering (eBPF)
 programs. It helps you write and compile eBPF programs that can run on
 Linux systems. You can use it by typing in the command
 "./target/debug/ebas <input-file> <output-file>" followed by the name
 of your input file and output file, then press enter. The assembler
 will help you create a program that can be used in Linux systems.
+
+## Build
+
+**ebas** is implemented in Rust. You need to install Rust first.  The
+way to install Rust varies depending on your environment.  Once Rust
+is installed, you can use `cargo` command to build ebas. Just type
+`cargo build --release`. With this command `ebas` binary will be
+generated in the `target/release` directory of your project.
+
+## Compile Programs
+
+Use `ebas` to compile ebpf assembly program. For example, `ebas
+ebpf_program.s ebpf_program.o` will compile `ebpf_program.s` and
+generate an ebpf object file `ebpf_program.o`. This ebpf object file
+can be loaded at run-time with libbpf library.
 
 ## Instructions
 
