@@ -23,6 +23,81 @@ can be loaded at run-time with libbpf library.
 Check the file *ex-apps/nanosleep.c* in the repository for loading an
 ebpf program.
 
+## The Syntax of ebas
+
+A program includes sections that comprise functions or data objects
+exclusively.  The keyword `.section` followed by a section name starts
+a new section.  A section ends by end-of-file or another `.section`
+keyword.  `.bss` is a variant of `.section` to create a BSS section
+with the section name `.bss` by default.  However, you can change the
+section name by providing a section name after the `.bss` keyword.
+The section started by the `.bss` keyword should contains only data
+objects while you can add functions or data objects exclusively to a
+section started by the `.section` keyword.  Following is an example
+that defines an `fentry` program attached to `__x64_sys_nanosleep`.
+
+    .section "fentry/__x64_sys_nanosleep"
+    .function nanosleep_fentry
+        call.helper 14
+        rsh.64      r0, 32
+        ld.dw       r1, @pid    // immediate value (addr)
+        ld.w        r1, r1      // Load 32-bits from memory
+        lsh.64      r1, 32      // expand to 64-bites
+        arsh.64     r1, 32
+        jne         r0, r1, @LBB0_2
+        ld.dw       r1, @fentry_cnt // immediate value (addr)
+        ld.w        r2, r1      // Load 32-bits from memory
+        add         r2, 1
+        st.w        r1, r2      // Store 32-bits to memory
+   
+    LBB0_2:
+        mov         r0, 0
+        exit
+   
+    .bss
+    .data pid
+        dw          0
+    .data fentry_cnt
+        dw          0
+
+`.function` followed by a function name starts a new function. `.data`
+followed by a name starts a new data object.  They define the scope of
+functions or data objects so that a loader like libbpf knows how to
+load it.
+
+### Labels and Names
+
+You can refer to function names, data object names, and label names by
+prefixing name with an `@` character. **ebas** will expand these names to
+the address or offset of functions, data objects, or labels.
+
+Labels are defined by a name followed by an `:` character in a separate
+line.
+
+For example,
+
+    foo:
+
+defines a label `foo`.  Labels help in creating relative jumps and
+calls within the ebpf program. You can refer to labels by prefixing
+the label name with an `@` character. For example, if you have a jump
+instruction like `jne`, you can use `jne r1, r2, @foo` to jump to the
+label `foo` if `r1` doesn't equal to `r2`.
+
+### Data Objects
+
+There are four keywords to define the content of data objects; `db`,
+`dh`, `dw`, and `dd`.
+
+They are integers of 1 byte, 2 bytes, 4 bytes, and 8 bytes
+respectively.  They are followed by numbers separated by commas
+`,`. For example, `db 0x02, 0xde, 0xa0` defines an integer of 3 bytes
+that starts with 2 and ends with a 0. `dw 0xdeadbeef, 0x0` defines two
+4-byte integers, 0xdeadbeef and 0x0.
+
+### Examples
+
+Please check the `ex-apps/` directory of the repository.
 ## Instructions
 
 There are three major categories of instructions.
@@ -200,78 +275,3 @@ original calling context.
 
     exit // terminate ebpf program execution
 
-## The Syntax of ebas
-
-A program includes sections that comprise functions or data objects
-exclusively.  The keyword `.section` followed by a section name starts
-a new section.  A section ends by end-of-file or another `.section`
-keyword.  `.bss` is a variant of `.section` to create a BSS section
-with the section name `.bss` by default.  However, you can change the
-section name by providing a section name after the `.bss` keyword.
-The section started by the `.bss` keyword should contains only data
-objects while you can add functions or data objects exclusively to a
-section started by the `.section` keyword.  Following is an example
-that defines an `fentry` program attached to `__x64_sys_nanosleep`.
-
-    .section "fentry/__x64_sys_nanosleep"
-    .function nanosleep_fentry
-        call.helper 14
-        rsh.64      r0, 32
-        ld.dw       r1, @pid    // immediate value (addr)
-        ld.w        r1, r1      // Load 32-bits from memory
-        lsh.64      r1, 32      // expand to 64-bites
-        arsh.64     r1, 32
-        jne         r0, r1, @LBB0_2
-        ld.dw       r1, @fentry_cnt // immediate value (addr)
-        ld.w        r2, r1      // Load 32-bits from memory
-        add         r2, 1
-        st.w        r1, r2      // Store 32-bits to memory
-   
-    LBB0_2:
-        mov         r0, 0
-        exit
-   
-    .bss
-    .data pid
-        dw          0
-    .data fentry_cnt
-        dw          0
-
-`.function` followed by a function name starts a new function. `.data`
-followed by a name starts a new data object.  They define the scope of
-functions or data objects so that a loader like libbpf knows how to
-load it.
-
-### Labels and Names
-
-You can refer to function names, data object names, and label names by
-prefixing name with an `@` character. **ebas** will expand these names to
-the address or offset of functions, data objects, or labels.
-
-Labels are defined by a name followed by an `:` character in a separate
-line.
-
-For example,
-
-    foo:
-
-defines a label `foo`.  Labels help in creating relative jumps and
-calls within the ebpf program. You can refer to labels by prefixing
-the label name with an `@` character. For example, if you have a jump
-instruction like `jne`, you can use `jne r1, r2, @foo` to jump to the
-label `foo` if `r1` doesn't equal to `r2`.
-
-## Data Objects
-
-There are four keywords to define the content of data objects; `db`,
-`dh`, `dw`, and `dd`.
-
-They are integers of 1 byte, 2 bytes, 4 bytes, and 8 bytes
-respectively.  They are followed by numbers separated by commas
-`,`. For example, `db 0x02, 0xde, 0xa0` defines an integer of 3 bytes
-that starts with 2 and ends with a 0. `dw 0xdeadbeef, 0x0` defines two
-4-byte integers, 0xdeadbeef and 0x0.
-
-### Examples
-
-Please check the `ex-apps/` directory of the repository.
