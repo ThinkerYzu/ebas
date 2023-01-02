@@ -314,7 +314,7 @@ impl Program {
         let strtab = &self.sects[1].data;
         let mut off = 0;
         while strtab.len() > off {
-            let v = unsafe { CStr::from_ptr((&strtab[off..]).as_ptr() as *const i8) };
+            let v = unsafe { CStr::from_ptr(strtab[off..].as_ptr() as *const i8) };
             if v.to_str().unwrap() == s {
                 return Some(off);
             }
@@ -702,7 +702,7 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                 }
                 prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_WRITE;
                 for v in u32v {
-                    prog.sects[sect_idx].data.extend(&v.to_ne_bytes());
+                    prog.sects[sect_idx].data.extend(v.to_ne_bytes());
                 }
             }
             Insn::Ddwords(u64v) => {
@@ -720,7 +720,7 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                 }
                 prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_WRITE;
                 for v in u64v {
-                    prog.sects[sect_idx].data.extend(&v.to_ne_bytes());
+                    prog.sects[sect_idx].data.extend(v.to_ne_bytes());
                 }
             }
             Insn::None => {}
