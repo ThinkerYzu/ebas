@@ -49,66 +49,12 @@ fn tokenize(line: &str) -> Result<Vec<&str>, ()> {
             last_nows = off + 1;
             continue;
         }
-        if c == '+' {
+        if "+-.:,".contains(c) {
             if off != last_nows {
                 tokens.push(&line[last_nows..off]);
             }
 
-            tokens.push("+");
-            last_nows = off + 1;
-            continue;
-        }
-        if c == '-' {
-            if off != last_nows {
-                tokens.push(&line[last_nows..off]);
-            }
-
-            tokens.push("-");
-            last_nows = off + 1;
-            continue;
-        }
-        if c == '.' {
-            if off != last_nows {
-                tokens.push(&line[last_nows..off]);
-            }
-
-            tokens.push(".");
-            last_nows = off + 1;
-            continue;
-        }
-        if c == ':' {
-            if off != last_nows {
-                tokens.push(&line[last_nows..off]);
-            }
-
-            tokens.push(":");
-            last_nows = off + 1;
-            continue;
-        }
-        if c == ',' {
-            if off != last_nows {
-                tokens.push(&line[last_nows..off]);
-            }
-
-            tokens.push(",");
-            last_nows = off + 1;
-            continue;
-        }
-        if c == '[' {
-            if off != last_nows {
-                tokens.push(&line[last_nows..off]);
-            }
-
-            tokens.push("]");
-            last_nows = off + 1;
-            continue;
-        }
-        if c == ']' {
-            if off != last_nows {
-                tokens.push(&line[last_nows..off]);
-            }
-
-            tokens.push("]");
+            tokens.push(&line[off..(off + 1)]);
             last_nows = off + 1;
             continue;
         }
