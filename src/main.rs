@@ -8,7 +8,6 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::process;
 
-#[allow(dead_code, non_camel_case_types)]
 mod btf;
 mod codegen;
 #[allow(dead_code, non_camel_case_types)]
