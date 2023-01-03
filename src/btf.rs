@@ -625,21 +625,14 @@ impl BTFBuilder {
 
     pub fn add_or_find_type(&mut self, btf: BTF) -> usize {
         let mut code = btf.calc_code();
-        loop {
-            match self.code_to_type_id.get(&code).copied() {
-                Some(type_id) => {
-                    if btf == self.btf_type_data[type_id - 1] {
-                        return type_id;
-                    }
-                    // Having two types with the same code point is a
-                    // collision.  Try next code point until empty one
-                    // or exactly same type.
-                    code += 1;
-                }
-                _ => {
-                    break;
-                }
+        while let Some(type_id) = self.code_to_type_id.get(&code).copied() {
+            if btf == self.btf_type_data[type_id - 1] {
+                return type_id;
             }
+            // Having two types with the same code point is a
+            // collision.  Try next code point until empty one
+            // or exactly same type.
+            code += 1;
         }
         self.btf_type_data.push(btf);
         let type_id = self.btf_type_data.len();
