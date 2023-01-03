@@ -1,6 +1,8 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::mem;
+use std::slice;
 
 #[allow(dead_code, non_camel_case_types)]
 mod types {
@@ -8,16 +10,16 @@ mod types {
 
     #[repr(C)]
     pub struct btf_header {
-        magic: u16,
-        version: u8,
-        flags: u8,
-        hdr_len: u32,
+        pub magic: u16,
+        pub version: u8,
+        pub flags: u8,
+        pub hdr_len: u32,
 
         // All offsets are in bytes relative to the end of this header
-        type_off: u32, // offset of type section
-        type_len: u32, // length of type section
-        str_off: u32,  // offset of string section
-        str_len: u32,  // length of string section
+        pub type_off: u32, // offset of type section
+        pub type_len: u32, // length of type section
+        pub str_off: u32,  // offset of string section
+        pub str_len: u32,  // length of string section
     }
 
     #[allow(clippy::upper_case_acronyms)]
@@ -60,10 +62,6 @@ mod types {
     impl PartialEq for size_or_type {
         fn eq(&self, other: &Self) -> bool {
             unsafe { self.size == other.size }
-        }
-
-        fn ne(&self, other: &Self) -> bool {
-            unsafe { self.size != other.size }
         }
     }
 
@@ -191,6 +189,66 @@ enum BTFExtra {
     Secinfos(Vec<types::btf_var_secinfo>),
     DeclTag(types::btf_decl_tag),
     Enum64(Vec<types::btf_enum64>),
+}
+
+impl BTFExtra {
+    #[allow(clippy::useless_transmute)]
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            BTFExtra::None => &[],
+            BTFExtra::U32(v) => unsafe {
+                slice::from_raw_parts(mem::transmute::<_, *const u8>(v), mem::size_of::<u32>())
+            },
+            BTFExtra::Array(v) => unsafe {
+                slice::from_raw_parts(
+                    mem::transmute::<_, *const u8>(v),
+                    mem::size_of::<types::btf_array>(),
+                )
+            },
+            BTFExtra::Members(v) => unsafe {
+                slice::from_raw_parts(
+                    mem::transmute::<_, *const u8>(v.as_ptr()),
+                    mem::size_of::<types::btf_member>() * v.len(),
+                )
+            },
+            BTFExtra::Enum(v) => unsafe {
+                slice::from_raw_parts(
+                    mem::transmute::<_, *const u8>(v.as_ptr()),
+                    mem::size_of::<types::btf_enum>() * v.len(),
+                )
+            },
+            BTFExtra::Params(v) => unsafe {
+                slice::from_raw_parts(
+                    mem::transmute::<_, *const u8>(v.as_ptr()),
+                    mem::size_of::<types::btf_param>() * v.len(),
+                )
+            },
+            BTFExtra::Var(v) => unsafe {
+                slice::from_raw_parts(
+                    mem::transmute::<_, *const u8>(v),
+                    mem::size_of::<types::btf_var>(),
+                )
+            },
+            BTFExtra::Secinfos(v) => unsafe {
+                slice::from_raw_parts(
+                    mem::transmute::<_, *const u8>(v.as_ptr()),
+                    mem::size_of::<types::btf_var_secinfo>() * v.len(),
+                )
+            },
+            BTFExtra::DeclTag(v) => unsafe {
+                slice::from_raw_parts(
+                    mem::transmute::<_, *const u8>(v),
+                    mem::size_of::<types::btf_decl_tag>(),
+                )
+            },
+            BTFExtra::Enum64(v) => unsafe {
+                slice::from_raw_parts(
+                    mem::transmute::<_, *const u8>(v.as_ptr()),
+                    mem::size_of::<types::btf_enum64>() * v.len(),
+                )
+            },
+        }
+    }
 }
 
 #[derive(Hash, PartialEq)]
@@ -509,9 +567,21 @@ impl BTF {
             ),
         }
     }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut bin = vec![];
+        bin.extend_from_slice(unsafe {
+            slice::from_raw_parts(
+                &self.typ as *const types::btf_type as *const u8,
+                mem::size_of::<types::btf_type>(),
+            )
+        });
+        bin.extend_from_slice(self.extra.as_bytes());
+        bin
+    }
 }
 
-struct BTFBuilder {
+pub struct BTFBuilder {
     strtab: HashMap<String, usize>,
     strtab_sz: usize,
     btf_type_data: Vec<BTF>,
@@ -519,7 +589,7 @@ struct BTFBuilder {
 }
 
 impl BTFBuilder {
-    fn new() -> BTFBuilder {
+    pub fn new() -> BTFBuilder {
         BTFBuilder {
             strtab: HashMap::new(),
             strtab_sz: 1,
@@ -528,10 +598,10 @@ impl BTFBuilder {
         }
     }
 
-    fn add_or_find_str(&mut self, name: &str) -> usize {
+    pub fn add_or_find_str(&mut self, name: &str) -> usize {
         self.strtab
             .get(name)
-            .map(|x| *x)
+            .copied()
             .or_else(|| {
                 let off = self.strtab_sz;
                 self.strtab.insert(name.to_string(), off);
@@ -541,16 +611,29 @@ impl BTFBuilder {
             .unwrap()
     }
 
-    fn add_or_find_type(&mut self, btf: BTF) -> usize {
+    fn gen_strtab(&self) -> Vec<u8> {
+        let mut kvs: Vec<_> = self.strtab.iter().collect();
+        kvs.sort_by_key(|(_key, off)| *off);
+        let mut strtab = vec![0];
+        for (key, off) in kvs {
+            assert_eq!(*off, strtab.len());
+            strtab.extend_from_slice(key.as_bytes());
+            strtab.push(0);
+        }
+        strtab
+    }
+
+    pub fn add_or_find_type(&mut self, btf: BTF) -> usize {
         let mut code = btf.calc_code();
         loop {
-            match self.code_to_type_id.get(&code).map(|x| *x) {
+            match self.code_to_type_id.get(&code).copied() {
                 Some(type_id) => {
-                    if btf == self.btf_type_data[type_id] {
+                    if btf == self.btf_type_data[type_id - 1] {
                         return type_id;
                     }
-                    // Two types has a code confliction.
-                    // Try next code point.
+                    // Having two types with the same code point is a
+                    // collision.  Try next code point until empty one
+                    // or exactly same type.
                     code += 1;
                 }
                 _ => {
@@ -558,9 +641,95 @@ impl BTFBuilder {
                 }
             }
         }
-        let type_id = self.btf_type_data.len();
         self.btf_type_data.push(btf);
+        let type_id = self.btf_type_data.len();
         self.code_to_type_id.insert(code, type_id);
         type_id
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut bin = vec![];
+        let type_off = mem::size_of::<types::btf_header>() as u32;
+        bin.resize(type_off as usize, 0);
+
+        for typ in &self.btf_type_data {
+            bin.append(&mut typ.as_bytes());
+        }
+        let type_len = bin.len() as u32 - type_off;
+
+        let mut strtab = self.gen_strtab();
+        let str_off = bin.len() as u32;
+        let str_len = strtab.len() as u32;
+        bin.append(&mut strtab);
+
+        let hdr = types::btf_header {
+            magic: 0xeb9f,
+            version: 0x1,
+            flags: 0,
+            hdr_len: type_off,
+            type_off,
+            type_len,
+            str_off,
+            str_len,
+        };
+        bin[..(type_off as usize)].copy_from_slice(unsafe {
+            slice::from_raw_parts(
+                &hdr as *const types::btf_header as *const u8,
+                type_off as usize,
+            )
+        });
+        bin
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add_or_find_str() {
+        let data = ["abc", "def", "ghijk", "lmnop", "qr"];
+        let mut offs = vec![];
+        let mut builder = BTFBuilder::new();
+        for v in data {
+            offs.push(builder.add_or_find_str(v));
+        }
+        assert_eq!(offs, [1, 5, 9, 15, 21]);
+        for (i, v) in data.iter().enumerate() {
+            assert_eq!(builder.add_or_find_str(v), offs[i]);
+        }
+
+        assert_eq!(builder.gen_strtab().len(), 24);
+    }
+
+    #[test]
+    fn test_add_or_find_type() {
+        let types = [
+            BTF::new_int(11, 8),
+            BTF::new_int(12, 8),
+            BTF::new_int(13, 8),
+            BTF::new_int(14, 8),
+        ];
+        assert!(types[0].calc_code() != types[1].calc_code());
+        let mut type_ids = vec![];
+        let mut builder = BTFBuilder::new();
+        for t in types {
+            type_ids.push(builder.add_or_find_type(t));
+        }
+
+        assert_eq!(type_ids, [1, 2, 3, 4]);
+        for i in 1..type_ids.len() {
+            assert_ne!(type_ids[i - 1], type_ids[i]);
+        }
+
+        let types = [
+            BTF::new_int(11, 8),
+            BTF::new_int(12, 8),
+            BTF::new_int(13, 8),
+            BTF::new_int(14, 8),
+        ];
+        for t in types {
+            assert_eq!(builder.add_or_find_type(t), type_ids.remove(0));
+        }
     }
 }
