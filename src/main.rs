@@ -456,6 +456,14 @@ impl Program {
 
         Ok(out)
     }
+
+    fn add_sym(&mut self, sym: Symbol) -> Result<(), String> {
+        if let Some(_) = self.find_symbol_idx(&sym.name) {
+            return Err(format!("Redefine the symbol: {}", sym.name));
+        }
+        self.syms.push(sym);
+        Ok(())
+    }
 }
 
 fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
@@ -469,13 +477,14 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
     prog.create_section(".strtab", SectionType::STRTAB)
         .map_err(|e| ParseError::new_p(0, "", &e))?;
 
-    prog.syms.push(Symbol {
+    prog.add_sym(Symbol {
         stype: SymbolType::NoType,
         name: "".to_string(),
         off: 0,
         sect: 0,
         size: 0,
-    });
+    })
+    .map_err(|e| ParseError::new_p(0, "", &e))?;
     let mut sect_idx = 0;
     let mut sym_func_data_idx: Option<usize> = None;
 
@@ -510,13 +519,14 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                     }
                     _ => {}
                 }
-                prog.syms.push(Symbol {
+                prog.add_sym(Symbol {
                     stype,
                     name: label,
                     off: prog.sects[sect_idx].data.len(),
                     sect: sect_idx,
                     size: 0,
-                });
+                })
+                .map_err(|e| ParseError::new_p(line_no, line, &e))?;
             }
             Insn::Insn(cmd, dst, dst_sign, dst_off, src, src_sign, src_off) => {
                 if sect_idx >= prog.sects.len() {
@@ -637,13 +647,14 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                         let idx = prog
                             .create_section(&name, SectionType::PROGBITS)
                             .map_err(|e| ParseError::new_p(0, line, &e))?;
-                        prog.syms.push(Symbol {
+                        prog.add_sym(Symbol {
                             stype: SymbolType::Section,
                             name,
                             off: 0,
                             sect: idx,
                             size: 0,
-                        });
+                        })
+                        .map_err(|e| ParseError::new_p(line_no, line, &e))?;
                         idx
                     }
                 };
@@ -660,13 +671,14 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                         let idx = prog
                             .create_section(&name, SectionType::NOBITS)
                             .map_err(|e| ParseError::new_p(0, line, &e))?;
-                        prog.syms.push(Symbol {
+                        prog.add_sym(Symbol {
                             stype: SymbolType::Section,
                             name,
                             off: 0,
                             sect: idx,
                             size: 0,
-                        });
+                        })
+                        .map_err(|e| ParseError::new_p(line_no, line, &e))?;
                         idx
                     }
                 };
