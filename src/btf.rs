@@ -4,6 +4,8 @@ use std::hash::{Hash, Hasher};
 use std::mem;
 use std::slice;
 
+use crate::parser::MapType;
+
 #[allow(dead_code, non_camel_case_types)]
 mod types {
     use std::hash::{Hash, Hasher};
@@ -24,6 +26,7 @@ mod types {
 
     #[allow(clippy::upper_case_acronyms)]
     pub enum BTF_KIND {
+        INVALID = 0,
         INT = 1,
         PTR = 2,
         ARRAY = 3,
@@ -43,6 +46,33 @@ mod types {
         DECL_TAG = 17,
         TYPE_TAG = 18,
         ENUM64 = 19,
+    }
+
+    impl BTF_KIND {
+        pub fn from_u8(v: u8) -> BTF_KIND {
+            match v {
+                1 => BTF_KIND::INT,
+                2 => BTF_KIND::PTR,
+                3 => BTF_KIND::ARRAY,
+                4 => BTF_KIND::STRUCT,
+                5 => BTF_KIND::UNION,
+                6 => BTF_KIND::ENUM,
+                7 => BTF_KIND::FWD,
+                8 => BTF_KIND::TYPEDEF,
+                9 => BTF_KIND::VOLATILE,
+                10 => BTF_KIND::CONST,
+                11 => BTF_KIND::RESTRICT,
+                12 => BTF_KIND::FUNC,
+                13 => BTF_KIND::FUNC_PROTO,
+                14 => BTF_KIND::VAR,
+                15 => BTF_KIND::DATASEC,
+                16 => BTF_KIND::FLOAT,
+                17 => BTF_KIND::DECL_TAG,
+                18 => BTF_KIND::TYPE_TAG,
+                19 => BTF_KIND::ENUM64,
+                _ => BTF_KIND::INVALID,
+            }
+        }
     }
 
     #[repr(C)]
@@ -258,12 +288,49 @@ pub struct BTF {
     extra: BTFExtra,
 }
 
+const MACHINE_PTR_SIZE: usize = 8;
+
 #[allow(dead_code)]
 impl BTF {
     pub fn calc_code(&self) -> u64 {
         let mut s = DefaultHasher::new();
         self.hash(&mut s);
         s.finish()
+    }
+
+    pub fn type_size(&self, btf_type_data: &[BTF]) -> usize {
+        let typ = (self.typ.info >> 24) & 0xf;
+        match types::BTF_KIND::from_u8(typ as u8) {
+            types::BTF_KIND::INT => unsafe { self.typ.size_type.size as usize },
+            types::BTF_KIND::PTR => MACHINE_PTR_SIZE,
+            types::BTF_KIND::ARRAY => {
+                if let BTFExtra::Array(extra) = &self.extra {
+                    let back_tid = extra.typ;
+                    let back = &btf_type_data[(back_tid - 1) as usize];
+                    back.type_size(btf_type_data) * extra.nelems as usize
+                } else {
+                    panic!("Should be an BTFExtra::Array");
+                }
+            }
+            types::BTF_KIND::STRUCT => {
+                if let BTFExtra::Members(members) = &self.extra {
+                    if members.is_empty() {
+                        0
+                    } else {
+                        let back_tid = members.last().unwrap().typ as usize;
+                        assert!((members.last().unwrap().offset % 8) == 0);
+                        let sz = btf_type_data[back_tid - 1].type_size(btf_type_data)
+                            + members.last().unwrap().offset as usize / 8;
+                        (sz + MACHINE_PTR_SIZE - 1) & !(MACHINE_PTR_SIZE - 1)
+                    }
+                } else {
+                    panic!("Should be an BTFExtra::Members");
+                }
+            }
+            _ => {
+                panic!("Unknown type");
+            }
+        }
     }
 
     pub fn new_int(name_off: u32, size: u32) -> BTF {
@@ -273,28 +340,32 @@ impl BTF {
                 info: types::btf_type::make_info(0, types::BTF_KIND::INT as u32, 0),
                 size_type: types::size_or_type { size },
             },
-            extra: BTFExtra::None,
+            extra: BTFExtra::U32(size * 8),
         }
     }
     pub fn new_ptr(type_id: u32) -> BTF {
         BTF {
             typ: types::btf_type {
                 name_off: 0,
-                info: types::btf_type::make_info(1, types::BTF_KIND::PTR as u32, type_id),
-                size_type: types::size_or_type { size: 0 },
+                info: types::btf_type::make_info(1, types::BTF_KIND::PTR as u32, 0),
+                size_type: types::size_or_type { typ: type_id },
             },
             extra: BTFExtra::None,
         }
     }
 
-    pub fn new_array(type_id: u32, nelems: u32) -> BTF {
+    pub fn new_array(type_id: u32, index_type: u32, nelems: u32) -> BTF {
         BTF {
             typ: types::btf_type {
                 name_off: 0,
-                info: types::btf_type::make_info(nelems, types::BTF_KIND::ARRAY as u32, type_id),
+                info: types::btf_type::make_info(0, types::BTF_KIND::ARRAY as u32, 0),
                 size_type: types::size_or_type { size: 0 },
             },
-            extra: BTFExtra::None,
+            extra: BTFExtra::Array(types::btf_array {
+                typ: type_id,
+                index_type,
+                nelems,
+            }),
         }
     }
 
@@ -302,13 +373,15 @@ impl BTF {
         let mut size_type = 0;
         let mut extra = vec![];
         for (name_off, type_id) in members {
-            let typ = &btf_type_data[*type_id as usize].typ;
+            let typ = &btf_type_data[(*type_id - 1) as usize].typ;
             extra.push(types::btf_member {
                 name_off: *name_off,
                 typ: *type_id,
-                offset: size_type,
+                offset: size_type * 8,
             });
-            size_type += unsafe { typ.size_type.size };
+            size_type += unsafe {
+                (typ.size_type.size + MACHINE_PTR_SIZE as u32 - 1) & !(MACHINE_PTR_SIZE as u32 - 1)
+            };
         }
         BTF {
             typ: types::btf_type {
@@ -328,7 +401,7 @@ impl BTF {
         let mut size_type = 0;
         let mut extra = vec![];
         for (name_off, type_id) in members {
-            let typ = &btf_type_data[*type_id as usize].typ;
+            let typ = &btf_type_data[(*type_id - 1) as usize].typ;
             extra.push(types::btf_member {
                 name_off: *name_off,
                 typ: *type_id,
@@ -487,7 +560,7 @@ impl BTF {
         let mut size = 0;
         let mut extra = vec![];
         for type_id in vars {
-            let typ = &btf_type_data[*type_id as usize].typ;
+            let typ = &btf_type_data[(*type_id - 1) as usize].typ;
             extra.push(types::btf_var_secinfo {
                 typ: *type_id,
                 offset: size,
@@ -598,6 +671,14 @@ impl BTFBuilder {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.btf_type_data.len()
+    }
+
+    pub fn type_size(&self, type_id: usize) -> usize {
+        self.btf_type_data[type_id - 1].type_size(&self.btf_type_data)
+    }
+
     pub fn add_or_find_str(&mut self, name: &str) -> usize {
         self.strtab
             .get(name)
@@ -655,14 +736,15 @@ impl BTFBuilder {
         let str_len = strtab.len() as u32;
         bin.append(&mut strtab);
 
+        let hdr_len = mem::size_of::<types::btf_header>() as u32;
         let hdr = types::btf_header {
             magic: 0xeb9f,
             version: 0x1,
             flags: 0,
-            hdr_len: type_off,
-            type_off,
+            hdr_len,
+            type_off: type_off - hdr_len,
             type_len,
-            str_off,
+            str_off: str_off - hdr_len,
             str_len,
         };
         bin[..(type_off as usize)].copy_from_slice(unsafe {
@@ -672,6 +754,97 @@ impl BTFBuilder {
             )
         });
         bin
+    }
+
+    pub fn add_map(
+        &mut self,
+        name: String,
+        map_type: MapType,
+        key_sz: u32,
+        value_sz: u32,
+        max_entries: u32,
+    ) -> Result<usize, String> {
+        let tid = match map_type {
+            MapType::Array => {
+                let int_str_off = self.add_or_find_str("int") as u32;
+                let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 4)) as u32;
+                let array_id = self.add_or_find_type(BTF::new_array(
+                    int_id,
+                    int_id,
+                    types::BTF_KIND::ARRAY as u32,
+                )) as u32;
+                let type_id = self.add_or_find_type(BTF::new_ptr(array_id)) as u32;
+                let key_id = match key_sz {
+                    1 => {
+                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 1)) as u32;
+                        self.add_or_find_type(BTF::new_ptr(int_id))
+                    }
+                    2 => {
+                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 2)) as u32;
+                        self.add_or_find_type(BTF::new_ptr(int_id))
+                    }
+                    4 => {
+                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 4)) as u32;
+                        self.add_or_find_type(BTF::new_ptr(int_id))
+                    }
+                    8 => {
+                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 8)) as u32;
+                        self.add_or_find_type(BTF::new_ptr(int_id))
+                    }
+                    _ => {
+                        return Err("Unknown key size".to_string());
+                    }
+                };
+                let value_id = match value_sz {
+                    1 => {
+                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 1)) as u32;
+                        self.add_or_find_type(BTF::new_ptr(int_id))
+                    }
+                    2 => {
+                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 2)) as u32;
+                        self.add_or_find_type(BTF::new_ptr(int_id))
+                    }
+                    4 => {
+                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 4)) as u32;
+                        self.add_or_find_type(BTF::new_ptr(int_id))
+                    }
+                    8 => {
+                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 8)) as u32;
+                        self.add_or_find_type(BTF::new_ptr(int_id))
+                    }
+                    _ => {
+                        return Err("Unknown key size".to_string());
+                    }
+                };
+                let array_id =
+                    self.add_or_find_type(BTF::new_array(int_id, int_id, max_entries)) as u32;
+                let max_id = self.add_or_find_type(BTF::new_ptr(array_id)) as u32;
+                let name_off = self.add_or_find_str(&name) as u32;
+                let type_off = self.add_or_find_str("type") as u32;
+                let key_off = self.add_or_find_str("key") as u32;
+                let value_off = self.add_or_find_str("value") as u32;
+                let max_off = self.add_or_find_str("max_entries") as u32;
+
+                self.add_or_find_type(BTF::new_struct(
+                    name_off,
+                    &[
+                        (type_off, type_id),
+                        (key_off, key_id as u32),
+                        (value_off, value_id as u32),
+                        (max_off, max_id),
+                    ],
+                    &self.btf_type_data,
+                ))
+            }
+            MapType::Hash => {
+                return Err("unknown map type".to_string());
+            }
+            _ => {
+                return Err("unknown map type".to_string());
+            }
+        };
+
+        Ok(tid)
     }
 }
 

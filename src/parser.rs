@@ -1,10 +1,21 @@
 use super::Program;
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum LabelType {
     NoType,
     Func,
     Data,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum MapType {
+    Array,
+    PerCPUArray,
+    Hash,
+    PerCPUHash,
+    LruHash,
+    LruPerCPUHash,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -17,6 +28,7 @@ pub enum Insn {
     Dbytes(Vec<u8>),
     Dwords(Vec<u32>),
     Ddwords(Vec<u64>),
+    Map(String, MapType, u32, u32, u32),
     None,
 }
 
@@ -182,6 +194,38 @@ pub fn parse_line(line: &str) -> Result<Insn, ParseError> {
                 }
                 let fname = tokens[2].to_string();
                 Ok(Insn::Label(fname, LabelType::Data))
+            }
+            "map" => {
+                if tokens.len() != 11
+                    || tokens[3] != ","
+                    || tokens[5] != ","
+                    || tokens[7] != ","
+                    || tokens[9] != ","
+                {
+                    return ParseError::new(
+                        line,
+                        "need a map name, type, key size, value size, and max entries",
+                    );
+                }
+                let map_name = tokens[2].to_string();
+                let map_type = match tokens[4] {
+                    "array" => MapType::Array,
+                    "percup_array" => MapType::PerCPUArray,
+                    "hash" => MapType::Hash,
+                    "percpu_hash" => MapType::PerCPUHash,
+                    "lru_hash" => MapType::LruHash,
+                    "lru_percpu_hash" => MapType::LruPerCPUHash,
+                    _ => {
+                        return ParseError::new(line, "unknown map type");
+                    }
+                };
+                let key_sz = u32::from_str(tokens[6])
+                    .map_err(|_| ParseError::new_p(0, line, "invalid key size"))?;
+                let value_sz = u32::from_str(tokens[8])
+                    .map_err(|_| ParseError::new_p(0, line, "invalid value size"))?;
+                let max_entries = u32::from_str(tokens[10])
+                    .map_err(|_| ParseError::new_p(0, line, "invalid max entries"))?;
+                Ok(Insn::Map(map_name, map_type, key_sz, value_sz, max_entries))
             }
             _ => ParseError::new(line, &format!("unknown keyword {}", tokens[1])),
         }

@@ -100,6 +100,7 @@ pub struct Program {
     syms: Vec<Symbol>,
     sects: Vec<Section>,
     temp_rels: Vec<Relocation>,
+    btf_builder: btf::BTFBuilder,
 }
 
 impl Program {
@@ -458,7 +459,7 @@ impl Program {
     }
 
     fn add_sym(&mut self, sym: Symbol) -> Result<(), String> {
-        if let Some(_) = self.find_symbol_idx(&sym.name) {
+        if self.find_symbol_idx(&sym.name).is_some() {
             return Err(format!("Redefine the symbol: {}", sym.name));
         }
         self.syms.push(sym);
@@ -466,27 +467,137 @@ impl Program {
     }
 }
 
+struct AssemblySession {
+    prog: Program,
+    sect_idx: usize,
+    sym_func_data_idx: Option<usize>,
+}
+
+impl AssemblySession {
+    fn new() -> AssemblySession {
+        AssemblySession {
+            prog: Program {
+                syms: vec![],
+                sects: vec![],
+                temp_rels: vec![],
+                btf_builder: btf::BTFBuilder::new(),
+            },
+            sect_idx: 0,
+            sym_func_data_idx: None,
+        }
+    }
+
+    fn add_sym(
+        &mut self,
+        name: String,
+        sym_type: SymbolType,
+        line_no: usize,
+        line: &str,
+    ) -> Result<(), ParseError> {
+        self.prog
+            .add_sym(Symbol {
+                stype: sym_type,
+                name,
+                off: self.prog.sects[self.sect_idx].data.len(),
+                sect: self.sect_idx,
+                size: 0,
+            })
+            .map_err(|e| ParseError::new_p(line_no, line, &e))?;
+        Ok(())
+    }
+
+    fn start_sym_scope(
+        &mut self,
+        name: String,
+        sym_type: SymbolType,
+        line_no: usize,
+        line: &str,
+    ) -> Result<(), ParseError> {
+        if let Some(sym_data_idx) = self.sym_func_data_idx {
+            self.prog.syms[sym_data_idx].size =
+                self.prog.sects[self.sect_idx].data.len() - self.prog.syms[sym_data_idx].off;
+        }
+        self.sym_func_data_idx = Some(self.prog.syms.len());
+        self.prog
+            .add_sym(Symbol {
+                stype: sym_type,
+                name,
+                off: self.prog.sects[self.sect_idx].data.len(),
+                sect: self.sect_idx,
+                size: 0,
+            })
+            .map_err(|e| ParseError::new_p(line_no, line, &e))?;
+        Ok(())
+    }
+
+    fn end_sym_scope(&mut self) {
+        if let Some(sym_data_idx) = self.sym_func_data_idx {
+            self.prog.syms[sym_data_idx].size =
+                self.prog.sects[self.sect_idx].data.len() - self.prog.syms[sym_data_idx].off;
+        }
+        self.sym_func_data_idx = None;
+    }
+
+    fn cur_sect(&mut self) -> &mut Section {
+        &mut self.prog.sects[self.sect_idx]
+    }
+
+    fn start_section(
+        &mut self,
+        name: String,
+        sect_type: SectionType,
+        line_no: usize,
+        line: &str,
+    ) -> Result<(), ParseError> {
+        self.sect_idx = match self.prog.find_section(&name) {
+            Some(idx) => idx,
+            _ => {
+                let idx = self
+                    .prog
+                    .create_section(&name, sect_type)
+                    .map_err(|e| ParseError::new_p(0, line, &e))?;
+                self.prog
+                    .add_sym(Symbol {
+                        stype: SymbolType::Section,
+                        name,
+                        off: 0,
+                        sect: idx,
+                        size: 0,
+                    })
+                    .map_err(|e| ParseError::new_p(line_no, line, &e))?;
+                idx
+            }
+        };
+        Ok(())
+    }
+
+    fn end_section(&mut self) {
+        if let Some(sym_data_idx) = self.sym_func_data_idx {
+            self.prog.syms[sym_data_idx].size =
+                self.cur_sect().data.len() - self.prog.syms[sym_data_idx].off;
+        }
+        self.sym_func_data_idx = None;
+    }
+}
+
 fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
-    let mut prog = Program {
-        syms: vec![],
-        sects: vec![],
-        temp_rels: vec![],
-    };
-    prog.create_section("", SectionType::NULL)
+    let mut s = AssemblySession::new();
+    s.prog
+        .create_section("", SectionType::NULL)
         .map_err(|e| ParseError::new_p(0, "", &e))?;
-    prog.create_section(".strtab", SectionType::STRTAB)
+    s.prog
+        .create_section(".strtab", SectionType::STRTAB)
         .map_err(|e| ParseError::new_p(0, "", &e))?;
 
-    prog.add_sym(Symbol {
-        stype: SymbolType::NoType,
-        name: "".to_string(),
-        off: 0,
-        sect: 0,
-        size: 0,
-    })
-    .map_err(|e| ParseError::new_p(0, "", &e))?;
-    let mut sect_idx = 0;
-    let mut sym_func_data_idx: Option<usize> = None;
+    s.prog
+        .add_sym(Symbol {
+            stype: SymbolType::NoType,
+            name: "".to_string(),
+            off: 0,
+            sect: 0,
+            size: 0,
+        })
+        .map_err(|e| ParseError::new_p(0, "", &e))?;
 
     for (line_no, line) in lines.iter().enumerate() {
         let insn = parser::parse_line(line).map_err(|mut e| {
@@ -495,45 +606,20 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
         })?;
 
         match insn {
-            Insn::Label(label, ltype) => {
-                if sect_idx >= prog.sects.len() {
-                    return ParseError::new_prog(line_no, line, "unknown error");
+            Insn::Label(label, ltype) => match ltype {
+                LabelType::Func => {
+                    s.start_sym_scope(label, SymbolType::Func, line_no, line)?;
                 }
-                let mut stype = SymbolType::NoType;
-                match ltype {
-                    LabelType::Func => {
-                        if let Some(sym_data_idx) = sym_func_data_idx {
-                            prog.syms[sym_data_idx].size =
-                                prog.sects[sect_idx].data.len() - prog.syms[sym_data_idx].off;
-                        }
-                        sym_func_data_idx = Some(prog.syms.len());
-                        stype = SymbolType::Func;
-                    }
-                    LabelType::Data => {
-                        if let Some(sym_data_idx) = sym_func_data_idx {
-                            prog.syms[sym_data_idx].size =
-                                prog.sects[sect_idx].data.len() - prog.syms[sym_data_idx].off;
-                        }
-                        sym_func_data_idx = Some(prog.syms.len());
-                        stype = SymbolType::Object;
-                    }
-                    _ => {}
+                LabelType::Data => {
+                    s.start_sym_scope(label, SymbolType::Object, line_no, line)?;
                 }
-                prog.add_sym(Symbol {
-                    stype,
-                    name: label,
-                    off: prog.sects[sect_idx].data.len(),
-                    sect: sect_idx,
-                    size: 0,
-                })
-                .map_err(|e| ParseError::new_p(line_no, line, &e))?;
-            }
+                _ => {
+                    s.add_sym(label, SymbolType::NoType, line_no, line)?;
+                }
+            },
             Insn::Insn(cmd, dst, dst_sign, dst_off, src, src_sign, src_off) => {
-                if sect_idx >= prog.sects.len() {
-                    return ParseError::new_prog(line_no, line, "unknown error");
-                }
-                if prog.sects[sect_idx].flags != 0
-                    && prog.sects[sect_idx].flags != (elf::SHF_ALLOC | elf::SHF_EXECINSTR)
+                if s.cur_sect().flags != 0
+                    && s.cur_sect().flags != (elf::SHF_ALLOC | elf::SHF_EXECINSTR)
                 {
                     return ParseError::new_prog(
                         line_no,
@@ -541,18 +627,18 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                         "should not inter-mix data and instructions",
                     );
                 }
-                prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_EXECINSTR;
+                s.cur_sect().flags = elf::SHF_ALLOC | elf::SHF_EXECINSTR;
 
                 if cmd == "exit" {
-                    codegen::ebpf_code_gen(&cmd, "", 0, "", 0, &mut prog.sects[sect_idx].data)
+                    codegen::ebpf_code_gen(&cmd, "", 0, "", 0, &mut s.cur_sect().data)
                         .map_err(|_| ParseError::new_p(line_no, line, "fail to generate code"))?;
                     continue;
                 }
 
-                let saved_rels_len = prog.temp_rels.len();
+                let saved_rels_len = s.prog.temp_rels.len();
                 let dst = if &dst[0..1] == "@" {
-                    let off = prog.sects[sect_idx].data.len();
-                    prog.temp_rels.push(Relocation {
+                    let off = s.cur_sect().data.len();
+                    s.prog.temp_rels.push(Relocation {
                         name: dst[1..].to_string(),
                         off,
                         rtype: if cmd == "call" {
@@ -560,19 +646,19 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                         } else {
                             ReloType::IMM
                         },
-                        sect: sect_idx,
+                        sect: s.sect_idx,
                     });
                     "0x0"
                 } else {
                     &dst
                 };
                 let dst_off = if &dst_off[0..1] == "@" {
-                    let off = prog.sects[sect_idx].data.len();
-                    prog.temp_rels.push(Relocation {
+                    let off = s.cur_sect().data.len();
+                    s.prog.temp_rels.push(Relocation {
                         name: dst_off[1..].to_string(),
                         off,
                         rtype: ReloType::OFF,
-                        sect: sect_idx,
+                        sect: s.sect_idx,
                     });
                     0x0
                 } else {
@@ -582,24 +668,24 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                     v * dst_sign
                 };
                 let src = if !src.is_empty() && &src[0..1] == "@" {
-                    let off = prog.sects[sect_idx].data.len();
-                    prog.temp_rels.push(Relocation {
+                    let off = s.cur_sect().data.len();
+                    s.prog.temp_rels.push(Relocation {
                         name: src[1..].to_string(),
                         off,
                         rtype: ReloType::IMM,
-                        sect: sect_idx,
+                        sect: s.sect_idx,
                     });
                     "0x0"
                 } else {
                     &src
                 };
                 let src_off = if &src_off[0..1] == "@" {
-                    let off = prog.sects[sect_idx].data.len();
-                    prog.temp_rels.push(Relocation {
+                    let off = s.cur_sect().data.len();
+                    s.prog.temp_rels.push(Relocation {
                         name: src_off[1..].to_string(),
                         off,
                         rtype: ReloType::OFF,
-                        sect: sect_idx,
+                        sect: s.sect_idx,
                     });
                     0x0
                 } else {
@@ -608,27 +694,20 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                         .map_err(|_| ParseError::new_p(line_no, line, "invalid source offset"))?;
                     v * src_sign
                 };
-                let rels_cnt = prog.temp_rels.len() - saved_rels_len;
+                let rels_cnt = s.prog.temp_rels.len() - saved_rels_len;
                 if rels_cnt > 2 {
                     eprintln!("Too many references to symbols. ({})", rels_cnt);
                     return ParseError::new_prog(line_no, line, "too many references to symbols");
                 }
 
-                let saved_sect_len = prog.sects[sect_idx].data.len();
+                let saved_sect_len = s.cur_sect().data.len();
 
-                codegen::ebpf_code_gen(
-                    &cmd,
-                    dst,
-                    dst_off,
-                    src,
-                    src_off,
-                    &mut prog.sects[sect_idx].data,
-                )
-                .map_err(|_| ParseError::new_p(line_no, line, "fail to generate code"))?;
+                codegen::ebpf_code_gen(&cmd, dst, dst_off, src, src_off, &mut s.cur_sect().data)
+                    .map_err(|_| ParseError::new_p(line_no, line, "fail to generate code"))?;
 
-                let insn_len = prog.sects[sect_idx].data.len() - saved_sect_len;
+                let insn_len = s.cur_sect().data.len() - saved_sect_len;
                 if insn_len == 16 {
-                    for rel in &mut prog.temp_rels[saved_rels_len..] {
+                    for rel in &mut s.prog.temp_rels[saved_rels_len..] {
                         if rel.rtype == ReloType::IMM {
                             rel.rtype = ReloType::IMM64;
                         }
@@ -636,60 +715,17 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                 }
             }
             Insn::Section(name) => {
-                if let Some(sym_data_idx) = sym_func_data_idx {
-                    prog.syms[sym_data_idx].size =
-                        prog.sects[sect_idx].data.len() - prog.syms[sym_data_idx].off;
-                }
-                sym_func_data_idx = None;
-                sect_idx = match prog.find_section(&name) {
-                    Some(idx) => idx,
-                    _ => {
-                        let idx = prog
-                            .create_section(&name, SectionType::PROGBITS)
-                            .map_err(|e| ParseError::new_p(0, line, &e))?;
-                        prog.add_sym(Symbol {
-                            stype: SymbolType::Section,
-                            name,
-                            off: 0,
-                            sect: idx,
-                            size: 0,
-                        })
-                        .map_err(|e| ParseError::new_p(line_no, line, &e))?;
-                        idx
-                    }
-                };
+                s.end_section();
+                s.start_section(name, SectionType::PROGBITS, line_no, line)?;
             }
             Insn::Bss(name) => {
-                if let Some(sym_data_idx) = sym_func_data_idx {
-                    prog.syms[sym_data_idx].size =
-                        prog.sects[sect_idx].data.len() - prog.syms[sym_data_idx].off;
-                }
-                sym_func_data_idx = None;
-                sect_idx = match prog.find_section(&name) {
-                    Some(idx) => idx,
-                    _ => {
-                        let idx = prog
-                            .create_section(&name, SectionType::NOBITS)
-                            .map_err(|e| ParseError::new_p(0, line, &e))?;
-                        prog.add_sym(Symbol {
-                            stype: SymbolType::Section,
-                            name,
-                            off: 0,
-                            sect: idx,
-                            size: 0,
-                        })
-                        .map_err(|e| ParseError::new_p(line_no, line, &e))?;
-                        idx
-                    }
-                };
-                prog.sects[sect_idx].flags = elf::SHF_WRITE | elf::SHF_ALLOC;
+                s.end_section();
+                s.start_section(name, SectionType::NOBITS, line_no, line)?;
+                s.cur_sect().flags = elf::SHF_WRITE | elf::SHF_ALLOC;
             }
             Insn::Dbytes(mut v_u8v) => {
-                if sect_idx >= prog.sects.len() {
-                    return ParseError::new_prog(line_no, line, "Unknown error");
-                }
-                if prog.sects[sect_idx].flags != 0
-                    && prog.sects[sect_idx].flags != (elf::SHF_ALLOC | elf::SHF_WRITE)
+                if s.cur_sect().flags != 0
+                    && s.cur_sect().flags != (elf::SHF_ALLOC | elf::SHF_WRITE)
                 {
                     return ParseError::new_prog(
                         line_no,
@@ -697,15 +733,12 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                         "should not inter-mix data and instructions",
                     );
                 }
-                prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_WRITE;
-                prog.sects[sect_idx].data.append(&mut v_u8v);
+                s.cur_sect().flags = elf::SHF_ALLOC | elf::SHF_WRITE;
+                s.cur_sect().data.append(&mut v_u8v);
             }
             Insn::Dwords(u32v) => {
-                if sect_idx >= prog.sects.len() {
-                    return ParseError::new_prog(line_no, line, "Unknown error");
-                }
-                if prog.sects[sect_idx].flags != 0
-                    && prog.sects[sect_idx].flags != (elf::SHF_ALLOC | elf::SHF_WRITE)
+                if s.cur_sect().flags != 0
+                    && s.cur_sect().flags != (elf::SHF_ALLOC | elf::SHF_WRITE)
                 {
                     return ParseError::new_prog(
                         line_no,
@@ -713,17 +746,14 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                         "should not inter-mix data and instructions",
                     );
                 }
-                prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_WRITE;
+                s.cur_sect().flags = elf::SHF_ALLOC | elf::SHF_WRITE;
                 for v in u32v {
-                    prog.sects[sect_idx].data.extend(v.to_ne_bytes());
+                    s.cur_sect().data.extend(v.to_ne_bytes());
                 }
             }
             Insn::Ddwords(u64v) => {
-                if sect_idx >= prog.sects.len() {
-                    return ParseError::new_prog(line_no, line, "Unknown error");
-                }
-                if prog.sects[sect_idx].flags != 0
-                    && prog.sects[sect_idx].flags != (elf::SHF_ALLOC | elf::SHF_WRITE)
+                if s.cur_sect().flags != 0
+                    && s.cur_sect().flags != (elf::SHF_ALLOC | elf::SHF_WRITE)
                 {
                     return ParseError::new_prog(
                         line_no,
@@ -731,24 +761,42 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
                         "should not inter-mix data and instructions",
                     );
                 }
-                prog.sects[sect_idx].flags = elf::SHF_ALLOC | elf::SHF_WRITE;
+                s.cur_sect().flags = elf::SHF_ALLOC | elf::SHF_WRITE;
                 for v in u64v {
-                    prog.sects[sect_idx].data.extend(v.to_ne_bytes());
+                    s.cur_sect().data.extend(v.to_ne_bytes());
                 }
+            }
+            Insn::Map(name, typ, key_sz, val_sz, max_entries) => {
+                s.end_sym_scope();
+                let tid = s
+                    .prog
+                    .btf_builder
+                    .add_map(name.clone(), typ, key_sz, val_sz, max_entries)
+                    .map_err(|e| ParseError::new_p(line_no, "", &e))?;
+                let tsize = s.prog.btf_builder.type_size(tid);
+                s.start_sym_scope(name, SymbolType::Object, line_no, line)?;
+                s.cur_sect().data.extend(vec![0; tsize]);
+                s.end_sym_scope();
             }
             Insn::None => {}
         }
     }
 
-    if let Some(sym_data_idx) = sym_func_data_idx {
-        prog.syms[sym_data_idx].size =
-            prog.sects[sect_idx].data.len() - prog.syms[sym_data_idx].off;
+    s.end_section();
+
+    if s.prog.btf_builder.len() != 0 {
+        let btf_bytes = s.prog.btf_builder.as_bytes();
+        s.start_section(".BTF".to_string(), SectionType::PROGBITS, 0, "")?;
+        s.cur_sect().data_off = btf_bytes.len();
+        s.cur_sect().data = btf_bytes;
+        s.end_section();
     }
 
-    prog.create_section(".symtab", SectionType::SYMTAB)
+    s.prog
+        .create_section(".symtab", SectionType::SYMTAB)
         .map_err(|e| ParseError::new_p(0, "", &e))?;
 
-    Ok(prog)
+    Ok(s.prog)
 }
 
 fn main() {

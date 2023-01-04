@@ -1,6 +1,6 @@
 
 BINS := nanosleep
-BPFS := nanosleep.bpf.o
+BPFS := nanosleep.bpf.o sample_map.bpf.o
 
 all:: $(BINS) $(BPFS)
 
