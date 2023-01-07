@@ -785,6 +785,7 @@ fn assembly(lines: Vec<String>) -> Result<Program, ParseError> {
     s.end_section();
 
     if s.prog.btf_builder.len() != 0 {
+        s.prog.btf_builder.add_datasec_maps();
         let btf_bytes = s.prog.btf_builder.as_bytes();
         s.start_section(".BTF".to_string(), SectionType::PROGBITS, 0, "")?;
         s.cur_sect().data_off = btf_bytes.len();
@@ -854,6 +855,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
 
     #[test]
     fn test_assembly() {
@@ -958,5 +961,27 @@ mod tests {
         assert_eq!(prog.sects[4].rels[0].off, 0);
         assert_eq!(prog.sects[4].rels[0].sect, 3);
         assert_eq!(prog.sects[3].data, [0x85, 0x10, 0, 0, 0x8, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_map() {
+        let prog = assembly(
+            ".section \".maps\"
+             .map array_map, array, 4, 8, 256"
+                .split("\n")
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+        assert_eq!(prog.sects.len(), 5);
+        assert_eq!(prog.sects[2].name, ".maps");
+        assert_eq!(prog.sects[2].data.len(), 0x20);
+        assert_eq!(prog.sects[3].name, ".BTF");
+        assert_eq!(prog.sects[3].data.len(), 300);
+        let mut s = DefaultHasher::new();
+        prog.sects[3].data.hash(&mut s);
+        let md = s.finish();
+        assert_eq!(md, 0xac93fe7721004f64);
     }
 }

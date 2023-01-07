@@ -80,6 +80,31 @@ fn parse_u64(v: &str) -> Result<u64, ()> {
     }
 }
 
+fn parse_i64(v: &str) -> Result<i64, ()> {
+    let mut skip = 0;
+    let sign = if v.len() > 1 {
+        if &v[..1] == "+" {
+            skip = 1;
+            1
+        } else if &v[..1] == "-" {
+            skip = 1;
+            -1
+        } else {
+            1
+        }
+    } else {
+        1
+    };
+    let v = &v[skip..];
+    if v.len() > 2 && &v[..2] == "0x" {
+        i64::from_str_radix(&v[2..], 16)
+            .map_err(|_| ())
+            .map(|x| x * sign)
+    } else {
+        v.parse().map_err(|_| ()).map(|x: i64| x * sign)
+    }
+}
+
 fn gen_alu(cmd: u8, cmd_sp: &[&str], dst: &str, src: &str, buf: &mut Vec<u8>) -> Result<(), ()> {
     let alu = if cmd_sp.len() == 2 {
         if cmd_sp[1] == "64" {
@@ -92,8 +117,9 @@ fn gen_alu(cmd: u8, cmd_sp: &[&str], dst: &str, src: &str, buf: &mut Vec<u8>) ->
     } else {
         return Err(());
     };
-    match parse_u64(src) {
+    match parse_i64(src) {
         Ok(v) => {
+            let v = u64::from_ne_bytes(v.to_ne_bytes());
             let code = cmd as u64
                 | BPF_K as u64
                 | alu as u64

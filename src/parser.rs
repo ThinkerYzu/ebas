@@ -401,8 +401,15 @@ pub fn parse_line(line: &str) -> Result<Insn, ParseError> {
                     return ParseError::new(line, "expect one more operand");
                 }
 
-                let src = tokens[tidx];
-                tidx += 1;
+                let src = if ["+", "-"].contains(&tokens[tidx]) {
+                    let s = tokens[tidx].to_string() + tokens[tidx + 1];
+                    tidx += 2;
+                    s
+                } else {
+                    let s = tokens[tidx].to_string();
+                    tidx += 1;
+                    s
+                };
                 let (src_sign, src_off) = if tidx < tokens.len()
                     && (tokens[tidx] == "+" || tokens[tidx] == "-" || tokens[tidx] == ",")
                 {
@@ -444,7 +451,7 @@ pub fn parse_line(line: &str) -> Result<Insn, ParseError> {
                     dst.to_string(),
                     dst_sign,
                     dst_off.to_string(),
-                    src.to_string(),
+                    src,
                     src_sign,
                     src_off.to_string(),
                 ))

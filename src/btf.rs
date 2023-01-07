@@ -1,3 +1,4 @@
+// https://www.kernel.org/doc/html/latest/bpf/btf.html
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -73,6 +74,43 @@ mod types {
                 _ => BTF_KIND::INVALID,
             }
         }
+    }
+
+    #[allow(clippy::upper_case_acronyms)]
+    pub enum BPF_MAP_TYPE {
+        UNSPEC = 0,
+        HASH = 1,
+        ARRAY = 2,
+        PROG_ARRAY = 3,
+        PERF_EVENT_ARRAY = 4,
+        PERCPU_HASH = 5,
+        PERCPU_ARRAY = 6,
+        STACK_TRACE = 7,
+        CGROUP_ARRAY = 8,
+        LRU_HASH = 9,
+        LRU_PERCPU_HASH = 10,
+        LPM_TRIE = 11,
+        ARRAY_OF_MAPS = 12,
+        HASH_OF_MAPS = 13,
+        DEVMAP = 14,
+        SOCKMAP = 15,
+        CPUMAP = 16,
+        XSKMAP = 17,
+        SOCKHASH = 18,
+        CGROUP_STORAGE = 19,
+        REUSEPORT_SOCKARRAY = 20,
+        PERCPU_CGROUP_STORAGE = 21,
+        QUEUE = 22,
+        STACK = 23,
+        SK_STORAGE = 24,
+        DEVMAP_HASH = 25,
+        STRUCT_OPS = 26,
+        RINGBUF = 27,
+        INODE_STORAGE = 28,
+        TASK_STORAGE = 29,
+        BLOOM_FILTER = 30,
+        USER_RINGBUF = 31,
+        CGRP_STORAGE = 32,
     }
 
     #[repr(C)]
@@ -201,8 +239,8 @@ mod types {
     }
 
     pub enum btf_var_linkage {
-        BTF_FUNC_STATIC = 0,
-        BTF_FUNC_GLOBAL = 1,
+        BTF_VAR_STATIC = 0,
+        BTF_VAR_GLOBAL = 1,
     }
 }
 
@@ -327,6 +365,11 @@ impl BTF {
                     panic!("Should be an BTFExtra::Members");
                 }
             }
+            types::BTF_KIND::VAR => {
+                let back_tid = unsafe { self.typ.size_type.typ };
+                let back = &btf_type_data[(back_tid - 1) as usize];
+                back.type_size(btf_type_data)
+            }
             _ => {
                 panic!("Unknown type");
             }
@@ -347,7 +390,7 @@ impl BTF {
         BTF {
             typ: types::btf_type {
                 name_off: 0,
-                info: types::btf_type::make_info(1, types::BTF_KIND::PTR as u32, 0),
+                info: types::btf_type::make_info(0, types::BTF_KIND::PTR as u32, 0),
                 size_type: types::size_or_type { typ: type_id },
             },
             extra: BTFExtra::None,
@@ -557,16 +600,14 @@ impl BTF {
     }
 
     pub fn new_datasec(name_off: u32, vars: &[u32], btf_type_data: &[BTF]) -> BTF {
-        let mut size = 0;
         let mut extra = vec![];
         for type_id in vars {
-            let typ = &btf_type_data[(*type_id - 1) as usize].typ;
+            let typ = &btf_type_data[(*type_id - 1) as usize];
             extra.push(types::btf_var_secinfo {
                 typ: *type_id,
-                offset: size,
-                size: unsafe { typ.size_type.size },
+                offset: 0,
+                size: typ.type_size(btf_type_data) as u32,
             });
-            size += unsafe { typ.size_type.size };
         }
         BTF {
             typ: types::btf_type {
@@ -659,6 +700,7 @@ pub struct BTFBuilder {
     strtab_sz: usize,
     btf_type_data: Vec<BTF>,
     code_to_type_id: HashMap<u64, usize>,
+    map_types: Vec<u32>,
 }
 
 impl BTFBuilder {
@@ -668,6 +710,7 @@ impl BTFBuilder {
             strtab_sz: 1,
             btf_type_data: vec![],
             code_to_type_id: HashMap::new(),
+            map_types: vec![],
         }
     }
 
@@ -771,7 +814,7 @@ impl BTFBuilder {
                 let array_id = self.add_or_find_type(BTF::new_array(
                     int_id,
                     int_id,
-                    types::BTF_KIND::ARRAY as u32,
+                    types::BPF_MAP_TYPE::ARRAY as u32,
                 )) as u32;
                 let type_id = self.add_or_find_type(BTF::new_ptr(array_id)) as u32;
                 let key_id = match key_sz {
@@ -825,8 +868,8 @@ impl BTFBuilder {
                 let value_off = self.add_or_find_str("value") as u32;
                 let max_off = self.add_or_find_str("max_entries") as u32;
 
-                self.add_or_find_type(BTF::new_struct(
-                    name_off,
+                let maptype_id = self.add_or_find_type(BTF::new_struct(
+                    0,
                     &[
                         (type_off, type_id),
                         (key_off, key_id as u32),
@@ -834,7 +877,14 @@ impl BTFBuilder {
                         (max_off, max_id),
                     ],
                     &self.btf_type_data,
-                ))
+                ));
+                let mapval_id = self.add_or_find_type(BTF::new_var(
+                    name_off,
+                    types::btf_var_linkage::BTF_VAR_GLOBAL,
+                    maptype_id as u32,
+                ));
+                self.map_types.push(mapval_id as u32);
+                mapval_id
             }
             MapType::Hash => {
                 return Err("unknown map type".to_string());
@@ -845,6 +895,18 @@ impl BTFBuilder {
         };
 
         Ok(tid)
+    }
+
+    pub fn add_datasec_maps(&mut self) {
+        if self.map_types.is_empty() {
+            return;
+        }
+        let name_off = self.add_or_find_str(".maps") as u32;
+        self.add_or_find_type(BTF::new_datasec(
+            name_off,
+            &self.map_types,
+            &self.btf_type_data,
+        ));
     }
 }
 
