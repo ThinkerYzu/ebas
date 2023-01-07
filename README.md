@@ -275,3 +275,17 @@ original calling context.
 
     exit // terminate ebpf program execution
 
+## Maps
+
+    .section ".maps"
+    .map array, array, 4, 8, 256
+
+Maps are a key component of ebpf, allowing programs to store and
+access data in an efficient way. To define a map, ebas provides the
+`.map` directive, which takes several parameters that determine how
+the map is structured and used. The first parameter is the name of the
+map; subsequent parameters include the type (array or hash) of data
+stored in it, its size in bytes, its maximum number of elements if
+it's an array, and any additional flags required for specific use
+cases. Once defined, maps can be accessed from ebpf programs using
+special help functions like `map_lookup` or `map_update`.
