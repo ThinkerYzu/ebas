@@ -278,6 +278,8 @@ original calling context.
 ## Maps
 
     .section ".maps"
+    // Declar a map of array type, with 4-bytes key, 8-bytes value,
+    // and max 256 entries
     .map array, array, 4, 8, 256
 
 Maps are a key component of ebpf, allowing programs to store and
@@ -288,4 +290,5 @@ map; subsequent parameters include the type (array or hash) of data
 stored in it, its size in bytes, its maximum number of elements if
 it's an array, and any additional flags required for specific use
 cases. Once defined, maps can be accessed from ebpf programs using
-special help functions like `map_lookup` or `map_update`.
+special help functions like `bpf_map_lookup_elem` or
+`bpf_map_update_elem`.
