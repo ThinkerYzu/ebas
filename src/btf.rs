@@ -813,14 +813,16 @@ impl BTFBuilder {
         max_entries: u32,
     ) -> Result<usize, String> {
         let tid = match map_type {
-            MapType::Array => {
+            MapType::Array | MapType::Hash => {
                 let int_str_off = self.add_or_find_str("int") as u32;
                 let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 4)) as u32;
-                let array_id = self.add_or_find_type(BTF::new_array(
-                    int_id,
-                    int_id,
-                    types::BPF_MAP_TYPE::ARRAY as u32,
-                )) as u32;
+                let map_type = match map_type {
+                    MapType::Array => types::BPF_MAP_TYPE::ARRAY as u32,
+                    MapType::Hash => types::BPF_MAP_TYPE::HASH as u32,
+                    _ => 0_u32,
+                };
+                let array_id =
+                    self.add_or_find_type(BTF::new_array(int_id, int_id, map_type)) as u32;
                 let type_id = self.add_or_find_type(BTF::new_ptr(array_id)) as u32;
                 let key_id = {
                     let ar_id = self.add_or_find_u8_array(key_sz.try_into().unwrap()) as u32;
@@ -856,9 +858,6 @@ impl BTFBuilder {
                 ));
                 self.map_types.push(mapval_id as u32);
                 mapval_id
-            }
-            MapType::Hash => {
-                return Err("unknown map type".to_string());
             }
             _ => {
                 return Err("unknown map type".to_string());
