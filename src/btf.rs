@@ -824,10 +824,16 @@ impl BTFBuilder {
                 let array_id =
                     self.add_or_find_type(BTF::new_array(int_id, int_id, map_type)) as u32;
                 let type_id = self.add_or_find_type(BTF::new_ptr(array_id)) as u32;
-                let key_id = {
-                    let ar_id = self.add_or_find_u8_array(key_sz.try_into().unwrap()) as u32;
-                    self.add_or_find_type(BTF::new_ptr(ar_id))
-                };
+                let kint_id = match key_sz {
+                    1 => self.add_or_find_type(BTF::new_int(int_str_off, 1)),
+                    2 => self.add_or_find_type(BTF::new_int(int_str_off, 2)),
+                    4 => self.add_or_find_type(BTF::new_int(int_str_off, 4)),
+                    8 => self.add_or_find_type(BTF::new_int(int_str_off, 8)),
+                    _ => {
+                        return Err("Unknown key size".to_string());
+                    }
+                } as u32;
+                let key_id = self.add_or_find_type(BTF::new_ptr(kint_id));
                 let value_id = {
                     let ar_id = self.add_or_find_u8_array(value_sz.try_into().unwrap()) as u32;
                     self.add_or_find_type(BTF::new_ptr(ar_id))
