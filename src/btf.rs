@@ -416,15 +416,14 @@ impl BTF {
         let mut size_type = 0;
         let mut extra = vec![];
         for (name_off, type_id) in members {
-            let typ = &btf_type_data[(*type_id - 1) as usize].typ;
+            let typ = &btf_type_data[(*type_id - 1) as usize];
             extra.push(types::btf_member {
                 name_off: *name_off,
                 typ: *type_id,
                 offset: size_type * 8,
             });
-            size_type += unsafe {
-                (typ.size_type.size + MACHINE_PTR_SIZE as u32 - 1) & !(MACHINE_PTR_SIZE as u32 - 1)
-            };
+            size_type += (typ.type_size(btf_type_data) as u32 + MACHINE_PTR_SIZE as u32 - 1)
+                & !(MACHINE_PTR_SIZE as u32 - 1);
         }
         BTF {
             typ: types::btf_type {
@@ -799,6 +798,12 @@ impl BTFBuilder {
         bin
     }
 
+    fn add_or_find_u8_array(&mut self, size: usize) -> usize {
+        let uint8_id = self.add_or_find_type(BTF::new_int(0, 1)) as u32;
+        let uint_id = self.add_or_find_type(BTF::new_int(0, 4)) as u32;
+        self.add_or_find_type(BTF::new_array(uint8_id, uint_id, size.try_into().unwrap()))
+    }
+
     pub fn add_map(
         &mut self,
         name: String,
@@ -817,47 +822,13 @@ impl BTFBuilder {
                     types::BPF_MAP_TYPE::ARRAY as u32,
                 )) as u32;
                 let type_id = self.add_or_find_type(BTF::new_ptr(array_id)) as u32;
-                let key_id = match key_sz {
-                    1 => {
-                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 1)) as u32;
-                        self.add_or_find_type(BTF::new_ptr(int_id))
-                    }
-                    2 => {
-                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 2)) as u32;
-                        self.add_or_find_type(BTF::new_ptr(int_id))
-                    }
-                    4 => {
-                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 4)) as u32;
-                        self.add_or_find_type(BTF::new_ptr(int_id))
-                    }
-                    8 => {
-                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 8)) as u32;
-                        self.add_or_find_type(BTF::new_ptr(int_id))
-                    }
-                    _ => {
-                        return Err("Unknown key size".to_string());
-                    }
+                let key_id = {
+                    let ar_id = self.add_or_find_u8_array(key_sz.try_into().unwrap()) as u32;
+                    self.add_or_find_type(BTF::new_ptr(ar_id))
                 };
-                let value_id = match value_sz {
-                    1 => {
-                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 1)) as u32;
-                        self.add_or_find_type(BTF::new_ptr(int_id))
-                    }
-                    2 => {
-                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 2)) as u32;
-                        self.add_or_find_type(BTF::new_ptr(int_id))
-                    }
-                    4 => {
-                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 4)) as u32;
-                        self.add_or_find_type(BTF::new_ptr(int_id))
-                    }
-                    8 => {
-                        let int_id = self.add_or_find_type(BTF::new_int(int_str_off, 8)) as u32;
-                        self.add_or_find_type(BTF::new_ptr(int_id))
-                    }
-                    _ => {
-                        return Err("Unknown key size".to_string());
-                    }
+                let value_id = {
+                    let ar_id = self.add_or_find_u8_array(value_sz.try_into().unwrap()) as u32;
+                    self.add_or_find_type(BTF::new_ptr(ar_id))
                 };
                 let array_id =
                     self.add_or_find_type(BTF::new_array(int_id, int_id, max_entries)) as u32;

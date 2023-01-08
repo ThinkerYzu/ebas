@@ -978,10 +978,10 @@ mod tests {
         assert_eq!(prog.sects[2].name, ".maps");
         assert_eq!(prog.sects[2].data.len(), 0x20);
         assert_eq!(prog.sects[3].name, ".BTF");
-        assert_eq!(prog.sects[3].data.len(), 300);
+        assert_eq!(prog.sects[3].data.len(), 364);
         let mut s = DefaultHasher::new();
         prog.sects[3].data.hash(&mut s);
         let md = s.finish();
-        assert_eq!(md, 0xac93fe7721004f64);
+        assert_eq!(md, 0x9f4b77b9dbf3d79d);
     }
 }
