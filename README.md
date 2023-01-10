@@ -95,6 +95,12 @@ respectively.  They are followed by numbers separated by commas
 that starts with 2 and ends with a 0. `dw 0xdeadbeef, 0x0` defines two
 4-byte integers, 0xdeadbeef and 0x0.
 
+`db` is capable of taking strings as input parameters. For instance,
+`db "hello", "world"` assigns 12 bytes worth of data. Every glyph in a
+string will be converted into one byte size and followed by a
+null-byte (0). Thus, `db "hello"` would equate to 6 bytes including
+that final null-byte for the end result.
+
 ### Examples
 
 Please check the `ex-apps/` directory of the repository.

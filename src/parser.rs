@@ -251,6 +251,9 @@ pub fn parse_line(line: &str) -> Result<Insn, ParseError> {
                                     ParseError::new_p(0, line, "invalid hex number")
                                 })?,
                             );
+                        } else if tkn.len() > 2 && tkn.starts_with('"') && tkn.ends_with('"') {
+                            values.extend_from_slice(tkn[1..(tkn.len()-1)].as_bytes());
+                            values.push(0);
                         } else {
                             values.push(
                                 tkn.parse()
